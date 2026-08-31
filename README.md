@@ -24,7 +24,7 @@ go build -o bin/effort.exe ./cmd/effort
 .\bin\effort.exe estimate 조사:M 설계:M 구현:L
 ```
 
-`estimate` 가 내는 표는 그대로 `Docs/History/공수기록.md` 에 붙는다.
+`estimate` 가 내는 표는 그대로 보고의 공수 표에 붙는다.
 
 ## 명령
 
