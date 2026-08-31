@@ -63,6 +63,16 @@ func newRules() *Rules {
 	return r
 }
 
+// 자동으로 채워 줄 수 있는 규칙 종류 이름. 그대로 사람에게도 보여 준다.
+const (
+	KindTool  = "tool"
+	KindRun   = "runpre·runin"
+	KindChore = "chore"
+)
+
+// KindOrder 는 종류를 보여 주고 덧붙이는 차례다.
+var KindOrder = []string{KindTool, KindRun, KindChore}
+
 // MissingKinds 는 rules.txt 에 아예 없는 새 규칙 종류를 알려 준다.
 // rules.txt 는 사람의 정본이라 판이 올라도 안 덮으므로, 옛 파일을 쓰면 규칙이 조용히 꺼진다.
 func (r *Rules) MissingKinds() []string {
@@ -74,15 +84,20 @@ func (r *Rules) MissingKinds() []string {
 		}
 	}
 	if empty {
-		out = append(out, "tool")
+		out = append(out, KindTool)
 	}
 	if len(r.Prefixes) == 0 && len(r.Contains) == 0 {
-		out = append(out, "runpre·runin")
+		out = append(out, KindRun)
 	}
 	if len(r.ChoreWord) == 0 {
-		out = append(out, "chore")
+		out = append(out, KindChore)
 	}
 	return out
+}
+
+// KindDefault 는 종류 하나의 기본 줄 덩어리다. 모르는 종류면 빈 글을 준다.
+func KindDefault(kind string) string {
+	return kindDefaults[kind]
 }
 
 // Set 은 도구 집합 하나다. 없는 이름이면 빈 집합을 준다.
@@ -94,7 +109,53 @@ func (r *Rules) Set(name string) map[string]bool {
 }
 
 // DefaultRulesText 는 rules.txt 가 없을 때 처음 한 번 만들어 주는 내용이다.
-const DefaultRulesText = `# effort 분류 규칙. 탭으로 나눈다. # 은 주석.
+// 종류별 덩어리는 kindDefaults 에서 가져다 쓰므로 「빠진 종류 덧붙이기」와 어긋날 수 없다.
+var DefaultRulesText = defaultHead + defaultToolLines + "\n" + defaultRunLines + "\n" + defaultChoreLines + "\n" + defaultTail
+
+// kindDefaults 는 그 종류가 rules.txt 에 한 줄도 없을 때 더해 줄 기본 줄이다.
+var kindDefaults = map[string]string{
+	KindTool:  defaultToolLines,
+	KindRun:   defaultRunLines,
+	KindChore: defaultChoreLines,
+}
+
+const defaultToolLines = `tool	쓰기	Write
+tool	쓰기	Edit
+tool	쓰기	NotebookEdit
+tool	쓰기	Artifact
+tool	웹	WebSearch
+tool	웹	WebFetch
+tool	읽기	Read
+tool	읽기	Grep
+tool	읽기	Glob
+tool	읽기	ToolSearch
+tool	셸	Bash
+tool	셸	PowerShell
+`
+
+const defaultRunLines = `runpre	‹bash-input›
+runpre	<bash-input>
+runpre	‹command-message›
+runpre	<command-message>
+runpre	‹local-command-caveat›
+runpre	<local-command-caveat>
+runpre	## Context Usage
+runpre	/
+runpre	Agent 도구로
+runin	loop wakeup
+`
+
+const defaultChoreLines = `chore	커밋
+chore	푸시
+chore	commit
+chore	push
+chore	stash
+chore	머지
+chore	merge
+chore	rebase
+`
+
+const defaultHead = `# effort 분류 규칙. 탭으로 나눈다. # 은 주석.
 # word   <분류>  <낱말>        설명 끝말·포함 낱말
 # agent  <분류>  <agentType>
 # size   <크기>  <배율>
@@ -115,6 +176,9 @@ word	조사	찾기
 word	조사	탐색
 word	조사	훑기
 word	조사	research
+word	조사	남은일
+word	조사	남은 작업
+word	조사	남은 할일
 word	설계	설계
 word	설계	계획
 word	설계	기획
@@ -136,6 +200,7 @@ word	실측	재기
 word	실측	벤치
 word	실측	성능
 word	실측	돌려보기
+word	실측	goldenset
 word	문서	문서
 word	문서	정리
 word	문서	기록
@@ -148,49 +213,27 @@ word	검토	리뷰
 word	검토	점검
 word	검토	감사
 word	검토	review
+word	도구실행	모니터링
+word	도구실행	mem search
+word	도구실행	mem index
+word	도구실행	mem eval
+word	도구실행	mem status
+word	도구실행	compact
+word	대화	고마워
+word	대화	알겠어
 
 agent	조사	Explore
 agent	설계	Plan
 agent	검토	superpowers:code-reviewer
 
-tool	쓰기	Write
-tool	쓰기	Edit
-tool	쓰기	NotebookEdit
-tool	쓰기	Artifact
-tool	웹	WebSearch
-tool	웹	WebFetch
-tool	읽기	Read
-tool	읽기	Grep
-tool	읽기	Glob
-tool	읽기	ToolSearch
-tool	셸	Bash
-tool	셸	PowerShell
+`
 
-runpre	‹bash-input›
-runpre	<bash-input>
-runpre	‹command-message›
-runpre	<command-message>
-runpre	‹local-command-caveat›
-runpre	<local-command-caveat>
-runpre	## Context Usage
-runpre	/
-runin	loop wakeup
+const defaultTail = `shell	max	2
 
-chore	커밋
-chore	푸시
-chore	commit
-chore	push
-chore	stash
-chore	머지
-chore	merge
-chore	rebase
-
-shell	max	2
-
-size	S	0.6
+size	S	0.3
 size	M	1.0
-size	L	1.8
-size	XL	3.2
+size	L	2.4
+size	XL	5.0
 
 seed	조사	10	5	20
 seed	설계	20	6	50

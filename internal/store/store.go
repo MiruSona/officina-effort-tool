@@ -4,8 +4,11 @@ import (
 	"bufio"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/mirusona/efforttool/internal/classify"
 	"github.com/mirusona/efforttool/internal/model"
@@ -45,6 +48,38 @@ func (s *Store) EnsureRules() (created bool, err error) {
 		return false, err
 	}
 	return true, nil
+}
+
+// AppendMissingKinds 는 빠진 종류의 기본 줄만 rules.txt 끝에 덧붙인다.
+// 기존 줄은 읽기만 하고 고치거나 지우지 않는다. 실제로 더한 종류를 돌려준다.
+func (s *Store) AppendMissingKinds(kinds []string) ([]string, error) {
+	var added []string
+	body := ""
+	for _, k := range kinds {
+		block := classify.KindDefault(k)
+		if block == "" {
+			continue
+		}
+		added = append(added, k)
+		body += block
+	}
+	if len(added) == 0 {
+		return nil, nil
+	}
+	p := s.RulesPath()
+	old, err := os.ReadFile(p)
+	if err != nil {
+		return nil, err
+	}
+	head := fmt.Sprintf("\n# --- %s 자동으로 더한 기본값 (%s) ---\n",
+		time.Now().Format("2006-01-02"), strings.Join(added, "·"))
+	if len(old) > 0 && old[len(old)-1] != '\n' {
+		head = "\n" + head
+	}
+	if err := writeAtomic(p, append(old, []byte(head+body)...)); err != nil {
+		return nil, err
+	}
+	return added, nil
 }
 
 func (s *Store) LoadRules() (*classify.Rules, error) {

@@ -65,6 +65,17 @@ func TestDefaultRulesParse(t *testing.T) {
 	}
 }
 
+// 실측으로 다시 잡은 크기 배율이다. 어림값으로 되돌아가면 여기서 걸린다.
+func TestDefaultSizeMultipliers(t *testing.T) {
+	r := defaultRules(t)
+	want := map[string]float64{"S": 0.3, "M": 1.0, "L": 2.4, "XL": 5.0}
+	for name, v := range want {
+		if r.Size(name) != v {
+			t.Fatalf("%s 배율 = %v, 바란 값 %v", name, r.Size(name), v)
+		}
+	}
+}
+
 func TestClassifyBySuffix(t *testing.T) {
 	r := defaultRules(t)
 	a := model.Agent{Description: "타일 자료 구조 조사", AgentType: "general-purpose"}

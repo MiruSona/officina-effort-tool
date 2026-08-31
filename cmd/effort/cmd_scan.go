@@ -62,6 +62,23 @@ func cmdScan(args []string) error {
 	if err != nil {
 		return fail(exitUsage, "%v", err)
 	}
+	var addedKinds []string
+	if missing := rules.MissingKinds(); len(missing) > 0 {
+		addedKinds, err = st.AppendMissingKinds(missing)
+		if err != nil {
+			return fail(exitWrite, "rules.txt 에 기본값을 못 더했습니다 : %v", err)
+		}
+		if len(addedKinds) > 0 {
+			rules, err = st.LoadRules()
+			if err != nil {
+				return fail(exitUsage, "%v", err)
+			}
+			if !*quiet {
+				fmt.Printf("rules.txt 에 %s 기본값을 더했습니다 : %s\n",
+					strings.Join(addedKinds, " · "), st.RulesPath())
+			}
+		}
+	}
 	printMissingKinds(rules, st.RulesPath())
 
 	dirs, err := pickProjectDirs(root, *project, *all)
@@ -77,7 +94,8 @@ func cmdScan(args []string) error {
 
 	state := st.LoadScanState()
 	// 판이 다르면 옛 작업에 새 칸이 없다. 섞이면 분류가 조용히 틀리므로 rebuild 와 똑같이 다룬다.
-	full := *rebuild || state.Stale()
+	// 규칙을 더했을 때도 캐시에 남은 옛 분류를 새 규칙으로 다시 매긴다.
+	full := *rebuild || state.Stale() || len(addedKinds) > 0
 	if state.Stale() {
 		fmt.Printf("캐시 판이 %s → %s 로 바뀌어 전부 다시 읽습니다.\n", oldSchemaName(state.Schema), store.SchemaVersion)
 	}
@@ -137,7 +155,7 @@ func printMissingKinds(rules *classify.Rules, path string) {
 	}
 	fmt.Printf("주의 : rules.txt 에 %s 줄이 없어 그 규칙이 꺼져 있습니다 (%s).\n",
 		strings.Join(missing, " · "), path)
-	fmt.Println("      옛 파일이면 지우고 scan 을 다시 돌리면 새 기본값으로 만들어집니다.")
+	fmt.Println("      scan 을 돌리면 빠진 종류의 기본값을 파일 끝에 더합니다.")
 }
 
 func oldSchemaName(s string) string {

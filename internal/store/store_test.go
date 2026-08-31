@@ -29,6 +29,117 @@ func TestEnsureRulesDoesNotOverwrite(t *testing.T) {
 	}
 }
 
+// 덧붙이기는 사람이 쓴 줄을 그대로 두고 빠진 종류만 끝에 더한다.
+func TestAppendMissingKindsPreservesUserLines(t *testing.T) {
+	s := New(t.TempDir())
+	user := "word\t조사\t내낱말\n"
+	if err := os.MkdirAll(s.Home(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(s.RulesPath(), []byte(user), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rules, err := s.LoadRules()
+	if err != nil {
+		t.Fatal(err)
+	}
+	added, err := s.AppendMissingKinds(rules.MissingKinds())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(added) != 3 {
+		t.Fatalf("더한 종류 = %v", added)
+	}
+	raw, err := os.ReadFile(s.RulesPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(raw), user) {
+		t.Fatalf("사람이 쓴 줄이 사라졌다 :\n%s", raw)
+	}
+	got, err := s.LoadRules()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Words["내낱말"] != model.ClassResearch {
+		t.Fatalf("사람 낱말 규칙이 죽었다 : %v", got.Words)
+	}
+	if len(got.Set("쓰기")) == 0 || len(got.Prefixes) == 0 || len(got.ChoreWord) == 0 {
+		t.Fatalf("tool·runpre·chore 가 안 생겼다 : %+v", got)
+	}
+	if left := got.MissingKinds(); len(left) != 0 {
+		t.Fatalf("아직 빠진 종류가 있다 : %v", left)
+	}
+}
+
+// 방아쇠는 「그 종류가 0줄」일 때뿐이라 두 번 돌려도 파일이 그대로여야 한다.
+func TestAppendMissingKindsIdempotent(t *testing.T) {
+	s := New(t.TempDir())
+	if _, err := s.EnsureRules(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(s.RulesPath(), []byte("word\t조사\t내낱말\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		rules, err := s.LoadRules()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.AppendMissingKinds(rules.MissingKinds()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	first, err := os.ReadFile(s.RulesPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rules, err := s.LoadRules()
+	if err != nil {
+		t.Fatal(err)
+	}
+	added, err := s.AppendMissingKinds(rules.MissingKinds())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(added) != 0 {
+		t.Fatalf("다 있는데 또 더했다 : %v", added)
+	}
+	second, _ := os.ReadFile(s.RulesPath())
+	if string(first) != string(second) {
+		t.Fatalf("두 번 돌렸더니 파일이 달라졌다 :\n%s\n---\n%s", first, second)
+	}
+}
+
+// 끝에 개행이 없는 파일도 줄이 붙어 버리면 안 된다.
+func TestAppendMissingKindsNoTrailingNewline(t *testing.T) {
+	s := New(t.TempDir())
+	if err := os.MkdirAll(s.Home(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(s.RulesPath(), []byte("word\t조사\t내낱말"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	rules, err := s.LoadRules()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AppendMissingKinds(rules.MissingKinds()); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(s.RulesPath())
+	if !strings.HasPrefix(string(raw), "word\t조사\t내낱말\n") {
+		t.Fatalf("줄이 붙어 버렸다 :\n%s", raw)
+	}
+	got, err := s.LoadRules()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Words["내낱말"] != model.ClassResearch {
+		t.Fatalf("사람 낱말 규칙이 깨졌다 : %v", got.Words)
+	}
+}
+
 func TestSanitizeIsSinglePlace(t *testing.T) {
 	s := New(t.TempDir())
 	tasks := []model.Task{{

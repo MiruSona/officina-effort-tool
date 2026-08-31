@@ -77,25 +77,49 @@ func (r *Rules) TaskWith(t *model.Task, ctx Ctx) (model.Class, string) {
 	return r.byTools(t, title)
 }
 
-// byTools 는 도구 신호로 보는 순위 5~9 다.
+// 곁도구는 일을 만들지 않는 도구다. 이것만 쓴 작업이 도구 셈 때문에 대화로 못 떨어지던 것을 막는다.
+var sideTools = map[string]bool{
+	"SendMessage":     true,
+	"ToolSearch":      true,
+	"AskUserQuestion": true,
+	"Monitor":         true,
+	"TaskStop":        true,
+	"ListAgents":      true,
+}
+
+// byTools 는 도구 신호로 보는 순위 5~9 다. 곁도구를 뺀 셈으로 본다.
 func (r *Rules) byTools(t *model.Task, title string) (model.Class, string) {
+	work := *t
+	work.Tools = withoutSideTools(t.Tools)
+
 	write := r.Set(SetWrite)
-	if r.isChore(title) && t.ToolsIn(write) == 0 {
+	if r.isChore(title) && work.ToolsIn(write) == 0 {
 		return model.ClassChore, ByChore
 	}
-	web, read := r.Set(SetWeb), r.Set(SetRead)
-	if t.ToolCalls() > 0 && t.ToolsIn(web) > 0 && t.ToolsOut(web, read) == 0 {
+	web, read, shell := r.Set(SetWeb), r.Set(SetRead), r.Set(SetShell)
+	// 셸은 웹조사 중에도 곁다리로 한두 번 쓰므로 「웹·읽기 밖」 셈에서 뺀다.
+	if work.ToolCalls() > 0 && work.ToolsIn(web) > 0 && work.ToolsOut(web, read, shell) == 0 {
 		return model.ClassResearch, ByWeb
 	}
-	shell := r.Set(SetShell)
-	shellCalls := t.ToolsIn(shell)
-	if len(t.Agents) == 0 && shellCalls > 0 && shellCalls <= r.ShellMax && t.ToolsOut(shell) == 0 {
+	shellCalls := work.ToolsIn(shell)
+	if len(t.Agents) == 0 && shellCalls > 0 && shellCalls <= r.ShellMax && work.ToolsOut(shell) == 0 {
 		return model.ClassTool, ByOrigin
 	}
-	if t.ToolCalls() == 0 && len(t.Agents) == 0 {
+	if work.ToolCalls() == 0 && len(t.Agents) == 0 {
 		return model.ClassChat, ByOrigin
 	}
 	return model.ClassUnknown, ByDefault
+}
+
+func withoutSideTools(tools map[string]int) map[string]int {
+	out := make(map[string]int, len(tools))
+	for name, v := range tools {
+		if sideTools[name] {
+			continue
+		}
+		out[name] = v
+	}
+	return out
 }
 
 // byAgents 는 서브에이전트 분류 중 토큰을 가장 많이 쓴 것을 고른다.

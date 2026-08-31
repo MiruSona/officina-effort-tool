@@ -1,0 +1,28 @@
+# 옛 판 rules.txt — tool·runpre·runin·chore 종류가 없던 시절. 자동 덧붙이기 시험용.
+word	조사	조사
+word	조사	확인
+word	설계	설계
+word	구현	구현
+word	문서	문서
+word	검토	검토
+
+agent	조사	Explore
+agent	설계	Plan
+
+size	S	0.6
+size	M	1.0
+size	L	1.8
+size	XL	3.2
+
+seed	조사	10	5	20
+seed	설계	20	6	50
+seed	구현	20	8	60
+seed	문서	8	3	20
+seed	검토	10	5	25
+seed	미분류	15	5	40
+
+human	조사	0.7
+human	구현	0.25
+
+min	sample	5
+blend	sample	12

@@ -91,8 +91,8 @@ func TestEstimateSizeMultiplier(t *testing.T) {
 	e := New(rules(t), nil, opt)
 	m := e.Estimate(Item{Class: model.ClassBuild, Size: "M"}, opt)
 	l := e.Estimate(Item{Class: model.ClassBuild, Size: "L"}, opt)
-	if l.P50Ms != int64(float64(m.P50Ms)*1.8) {
-		t.Fatalf("L = %d, M = %d (1.8배가 아니다)", l.P50Ms, m.P50Ms)
+	if l.P50Ms != int64(float64(m.P50Ms)*2.4) {
+		t.Fatalf("L = %d, M = %d (2.4배가 아니다)", l.P50Ms, m.P50Ms)
 	}
 }
 

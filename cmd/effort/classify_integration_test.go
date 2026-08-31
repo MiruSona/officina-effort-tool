@@ -7,11 +7,13 @@ import (
 	"testing"
 
 	"github.com/mirusona/efforttool/internal/classify"
+	"github.com/mirusona/efforttool/internal/collect"
 	"github.com/mirusona/efforttool/internal/model"
 	"github.com/mirusona/efforttool/internal/store"
 )
 
 const testdataNotify = "../../testdata/notify"
+const testdataOldRules = "../../testdata/oldrules"
 
 // scanNotify 는 알림 세션 하나를 훑는다.
 func scanNotify(t *testing.T, extra ...string) (string, []model.Task) {
@@ -140,23 +142,112 @@ func TestScanIncrementalKeepsInherit(t *testing.T) {
 	}
 }
 
-func TestScanWarnsOnOldRulesFile(t *testing.T) {
+// 옛 rules.txt 를 쓰면 scan 이 빠진 종류의 기본값을 끝에 더하고 새 규칙으로 다시 분류한다.
+func TestScanFillsOldRulesFile(t *testing.T) {
 	home := t.TempDir()
-	// 새 종류가 없던 시절의 rules.txt 를 흉내낸다.
-	old := "word\t조사\t조사\nseed\t조사\t10\t5\t20\n"
+	oldText, err := os.ReadFile(filepath.FromSlash("../../testdata/rules/old.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(home, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(home, "rules.txt"), []byte(old), 0o644); err != nil {
+	rulesPath := filepath.Join(home, "rules.txt")
+	if err := os.WriteFile(rulesPath, oldText, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	code, out := capture(t, "scan", "--home", home, "--projects", testdataNotify, "--all")
+	// 옛 규칙만으로는 두 건 다 미분류다.
+	if n := unknownWithRules(t, string(oldText)); n != 2 {
+		t.Fatalf("옛 규칙 미분류 = %d건 (2건이어야 표본이 된다)", n)
+	}
+
+	code, out := capture(t, "scan", "--home", home, "--projects", testdataOldRules, "--all")
 	if code != exitOK {
 		t.Fatalf("scan %d\n%s", code, out)
 	}
-	if !strings.Contains(out, "규칙이 꺼져 있습니다") {
-		t.Fatalf("옛 rules.txt 를 안 알렸다 :\n%s", out)
+	if !strings.Contains(out, "기본값을 더했습니다") {
+		t.Fatalf("더했다고 안 알렸다 :\n%s", out)
 	}
+	if strings.Contains(out, "규칙이 꺼져 있습니다") {
+		t.Fatalf("더하고도 경고가 남았다 :\n%s", out)
+	}
+	tasks, err := store.New(home).ReadTasks()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, task := range tasks {
+		if task.Class == model.ClassUnknown {
+			t.Fatalf("새 규칙인데 아직 미분류다 : %s %q", task.PromptID, task.Title)
+		}
+	}
+	raw, err := os.ReadFile(rulesPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(string(raw), string(oldText)) {
+		t.Fatal("사람이 쓴 줄을 건드렸다")
+	}
+
+	// 두 번째 scan 은 더할 것이 없다.
+	code, out = capture(t, "scan", "--home", home, "--projects", testdataOldRules, "--all")
+	if code != exitOK {
+		t.Fatalf("두번째 scan %d\n%s", code, out)
+	}
+	if strings.Contains(out, "기본값을 더했습니다") {
+		t.Fatalf("다 있는데 또 더했다 :\n%s", out)
+	}
+	again, _ := os.ReadFile(rulesPath)
+	if string(raw) != string(again) {
+		t.Fatal("두 번 돌렸더니 rules.txt 가 달라졌다")
+	}
+}
+
+// rules --check 는 읽기 명령이라 파일을 고치지 않고 알리기만 한다.
+func TestRulesCheckDoesNotAppend(t *testing.T) {
+	home := t.TempDir()
+	oldText, err := os.ReadFile(filepath.FromSlash("../../testdata/rules/old.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	rulesPath := filepath.Join(home, "rules.txt")
+	if err := os.WriteFile(rulesPath, oldText, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	code, out := capture(t, "rules", "--home", home, "--check")
+	if code != exitOK {
+		t.Fatalf("rules --check %d\n%s", code, out)
+	}
+	if !strings.Contains(out, "규칙이 꺼져 있습니다") {
+		t.Fatalf("빠진 종류를 안 알렸다 :\n%s", out)
+	}
+	raw, _ := os.ReadFile(rulesPath)
+	if string(raw) != string(oldText) {
+		t.Fatal("읽기 명령이 rules.txt 를 고쳤다")
+	}
+}
+
+// unknownWithRules 는 주어진 규칙으로 시험 세션을 분류해 미분류 건수를 센다.
+func unknownWithRules(t *testing.T, text string) int {
+	t.Helper()
+	rules, err := classify.ParseRules(strings.NewReader(text))
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := collect.ReadSession(filepath.FromSlash(testdataOldRules + "/proj/sess-oldrules0001.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rules.ClassifySession(res.Tasks)
+	n := 0
+	for _, task := range res.Tasks {
+		if task.Class == model.ClassUnknown {
+			n++
+		}
+	}
+	return n
 }
 
 func TestStatsHidesNonWorkByDefault(t *testing.T) {

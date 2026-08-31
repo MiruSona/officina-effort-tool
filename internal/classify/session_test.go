@@ -170,10 +170,78 @@ func TestClassifyShellOnceIsToolRun(t *testing.T) {
 
 func TestClassifyChatWhenNoToolNoAgent(t *testing.T) {
 	r := defaultRules(t)
-	task := model.Task{Title: "zzz 알겠어"}
+	task := model.Task{Title: "zzz qqq"}
 	c, by := r.Task(&task)
 	if c != model.ClassChat || by != ByOrigin {
 		t.Fatalf("분류 = %s (%s)", c, by)
+	}
+}
+
+func TestClassifyChatWord(t *testing.T) {
+	r := defaultRules(t)
+	task := model.Task{Title: "고마워"}
+	c, by := r.Task(&task)
+	if c != model.ClassChat || by != ByTitle {
+		t.Fatalf("분류 = %s (%s)", c, by)
+	}
+}
+
+// 곁도구만 쓴 작업은 도구를 안 쓴 것과 같이 봐야 대화로 떨어진다.
+func TestClassifySideToolsOnlyIsChat(t *testing.T) {
+	r := defaultRules(t)
+	task := model.Task{Title: "zzz qqq", Tools: map[string]int{
+		"SendMessage": 3, "TaskStop": 1, "Monitor": 2,
+	}}
+	c, by := r.Task(&task)
+	if c != model.ClassChat || by != ByOrigin {
+		t.Fatalf("분류 = %s (%s)", c, by)
+	}
+}
+
+func TestClassifySideToolsDoNotBlockShellRun(t *testing.T) {
+	r := defaultRules(t)
+	task := model.Task{Title: "zzz qqq", Tools: map[string]int{"Bash": 1, "ToolSearch": 4}}
+	c, by := r.Task(&task)
+	if c != model.ClassTool || by != ByOrigin {
+		t.Fatalf("분류 = %s (%s)", c, by)
+	}
+}
+
+// 웹조사 중에 셸을 몇 번 써도 조사로 봐야 한다.
+func TestClassifyWebResearchAllowsShell(t *testing.T) {
+	r := defaultRules(t)
+	task := model.Task{Title: "zzz 값이 얼마야", Tools: map[string]int{
+		"WebSearch": 3, "WebFetch": 2, "Bash": 6,
+	}}
+	c, by := r.Task(&task)
+	if c != model.ClassResearch || by != ByWeb {
+		t.Fatalf("분류 = %s (%s)", c, by)
+	}
+}
+
+func TestClassifyWebResearchStillNeedsNoWriteTool(t *testing.T) {
+	r := defaultRules(t)
+	task := model.Task{Title: "zzz 값이 얼마야", Tools: map[string]int{"WebSearch": 3, "Write": 1}}
+	if c, _ := r.Task(&task); c == model.ClassResearch {
+		t.Fatal("파일을 썼는데 웹조사로 봤다")
+	}
+}
+
+func TestClassifyToolRunByAgentPrefix(t *testing.T) {
+	r := defaultRules(t)
+	task := model.Task{Title: "Agent 도구로 서브에이전트를 띄웠다"}
+	if c, _ := r.Task(&task); c != model.ClassTool {
+		t.Fatalf("분류 = %s", c)
+	}
+}
+
+func TestClassifyMemCommandIsToolRun(t *testing.T) {
+	r := defaultRules(t)
+	for _, title := range []string{"mem search 타일", "mem index 다시", "mem status 보여줘"} {
+		task := model.Task{Title: title}
+		if c, _ := r.Task(&task); c != model.ClassTool {
+			t.Fatalf("%q 분류 = %s", title, c)
+		}
 	}
 }
 
