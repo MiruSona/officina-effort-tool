@@ -1,0 +1,3 @@
+word	조사	조사
+wurd	구현	구현
+size	M	1.0

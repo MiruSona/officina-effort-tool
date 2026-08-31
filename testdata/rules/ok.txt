@@ -1,0 +1,12 @@
+# 시험용 규칙 파일
+word	조사	조사
+word	구현	구현
+agent	조사	Explore
+size	S	0.6
+size	M	1.0
+size	L	1.8
+seed	조사	10	5	20
+seed	구현	20	8	60
+human	구현	0.25
+min	sample	5
+blend	sample	12

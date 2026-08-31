@@ -1,0 +1,130 @@
+# EffortTool — 공수 측정 툴
+
+Claude Code 가 남긴 세션 기록(JSONL)만 읽어 **무슨 일에 시간과 토큰이 얼마나 들었는지** 재고,
+다음 일의 **예상 공수 표**를 뽑는 단일 실행 파일이다. LLM 을 부르지 않는다. 상주 프로세스도 없다.
+
+- Go 표준 라이브러리만 쓴다 (바깥 라이브러리 0개, `CGO_ENABLED=0`).
+- **원본 JSONL 은 열기 전용**이다. 쓰기·이름바꾸기·삭제 코드 경로가 아예 없다.
+- 결과는 `%USERPROFILE%\.effort\` 아래에 둔다. `cache/` 는 지워도 `effort scan --rebuild` 로 되살아나는 파생물이고,
+  사람이 고치는 정본은 `rules.txt` 하나뿐이다.
+
+## 빌드
+
+```powershell
+cd EffortTool
+$env:CGO_ENABLED="0"
+go build -o bin/effort.exe ./cmd/effort
+```
+
+## 빨리 써 보기
+
+```powershell
+.\bin\effort.exe scan --all          # 기록을 훑어 캐시에 넣는다
+.\bin\effort.exe stats --by class    # 분류별 건수·시간·토큰
+.\bin\effort.exe estimate 조사:M 설계:M 구현:L
+```
+
+`estimate` 가 내는 표는 그대로 `Docs/History/공수기록.md` 에 붙는다.
+
+## 명령
+
+| 명령 | 하는 일 | 읽는 것 / 쓰는 것 |
+| --- | --- | --- |
+| `scan` | JSONL 을 훑어 작업 레코드를 만든다. 기본은 바뀐 파일만, `--rebuild` 는 통째로 | 읽기 `~/.claude/projects/**` · 쓰기 `.effort/cache/*` |
+| `stats` | 분류·에이전트·모델·세션별 건수 · 벽시계 · 순수시간 · 토큰 · 토큰당 시간 | 캐시만 읽는다 |
+| `estimate` | 소단계 목록을 받아 예상·범위 표를 낸다 | 캐시 + `rules.txt` |
+| `show` | 작업 하나 상세 (서브에이전트 · 모델별 토큰 · 세션 검산) | 캐시만 읽는다 |
+| `list` | 작업 목록 한 줄씩 | 캐시만 읽는다 |
+| `rules` | 분류 규칙 · 크기 배율 · 시드를 보여준다. `--check` 는 문법 검사 | `rules.txt` 만 읽는다 |
+| `version` · `help` | 판 · 도움말 | — |
+
+`stats` · `estimate` · `show` · `list` 는 **절대 쓰기를 안 한다.** 캐시가 없으면 그렇게 말하고 종료 2 다.
+
+### 자주 쓰는 옵션
+
+```
+effort scan     [--home DIR] [--projects DIR] [--project NAME|--all] [--rebuild] [--titles=false] [--quiet]
+effort stats    [--class C] [--since YYYY-MM-DD] [--by class|agent|model|session] [--wide|--json]
+effort estimate [소단계...] [--from FILE|-] [--human] [--metric wall|pure] [--days N] [--no-x2] [--freeze]
+effort show     <promptId|접두사> [--json]
+effort list     [--class C] [--since D] [--session ID] [--limit N] [--sort wall|pure|tok]
+effort rules    [--check]
+```
+
+- 소단계 꼴은 `[이름:]분류[:크기]` 다. 예 : `조사:M` · `시험:구현:L` · `구현`(크기 M).
+- 분류는 **조사 · 설계 · 구현 · 실측 · 문서 · 검토 · 미분류**, 크기는 **S · M · L · XL** 이다.
+- 인자 대신 파이프 표를 먹일 수도 있다.
+
+```powershell
+Get-Content 소단계.md | .\bin\effort.exe estimate --from - --human
+```
+
+```
+| 소단계 | 분류 | 크기 | 사람눈금 |
+| --- | --- | --- | --- |
+| 1. JSONL 파서 | 구현 | M | 60 |
+| 2. 실측·검산 | 실측 | M | |
+```
+
+인자와 `--from` 을 같이 주면 사용법 오류(종료 1)다.
+
+## 종료 코드
+
+| 코드 | 뜻 |
+| --- | --- |
+| 0 | 성공 |
+| 1 | 사용법 오류 (모르는 옵션, 인자와 `--from` 동시, `rules.txt` 문법 오류) |
+| 2 | 낼 것이 없음 (캐시 없음 · 표본 0) — 왜 0건인지 한 줄 말한다 |
+| 3 | 읽기 실패 (경로 감옥 위반 · 폴더 없음 · 권한) |
+| 4 | 쓰기 · 락 실패 |
+| 5 | 손상 줄 비율이 상한(2%)을 넘음 |
+
+## 규칙 파일 (`rules.txt`)
+
+`.effort\rules.txt` 는 없을 때 한 번만 기본값으로 만들어진다. **있으면 절대 안 덮는다.**
+탭으로 나누고 `#` 이 주석이다. 모르는 종류 낱말이 오면 줄 번호를 찍고 바로 실패한다.
+
+```
+word	조사	조사          설명 끝말·포함 낱말
+agent	설계	Plan          agentType
+size	L	1.8           크기 배율
+seed	조사	10	5	20    분류 p50분 p20분 p80분
+human	구현	0.25          사람 눈금 × 배율
+min	sample	5             이 아래면 시드만 쓴다
+blend	sample	12            이 위면 실측만 쓴다
+```
+
+## 예상 공수를 어떻게 내나
+
+1. 캐시에서 그 분류의 지난 작업 시간을 모아 **p20 · p50 · p80** 을 낸다 (선형 보간).
+2. 표본이 `min sample` 보다 적으면 **시드값만**, `blend sample` 이상이면 **실측만**, 사이면 **섞는다.**
+   근거 칸에 `시드 (n=3)` · `섞음 n=8` · `실측 n=31` 로 어느 쪽을 썼는지 적는다.
+3. 크기 배율을 곱한다. 분류가 `실측`이면 **×2**(`--no-x2` 로 끔), `--freeze` 면 ×1.5 를 더 건다.
+4. 합의 범위는 각 칸의 단순 합이다 (분산 합이 아니다 — 사람이 검산할 수 있어야 한다).
+
+## 알아 둘 것 (실물에서 확인한 것)
+
+- **작업 한 건 = 사용자 프롬프트 한 개**다. 우리가 말하는 「소단계」는 보통 프롬프트 여러 개에 걸친다.
+  그래서 `estimate` 가 내는 값은 지금 **소단계보다 작은 단위**다. 표본이 쌓이면 배율을 다시 잡아야 한다.
+- `turn_duration` 에는 **사람을 기다린 시간이 섞여 있다**(9시간짜리 턴이 실제로 있다).
+  순수시간이 벽시계의 2배를 넘으면 `순수시간과다` 표시를 달고 `--metric pure` 표본에서 뺀다.
+- `cost-state` 줄은 **세션의 약 10%에만 있다.** 없는 세션은 `cost-state없음` 표시를 달고 검산 칸을 `—` 로 둔다.
+- `promptId` 는 `user` 줄에만 있다. `assistant` · `turn_duration` 줄은 파일 순서대로 앞선 `promptId` 를 이어받는다.
+- 같은 `(requestId, message.id)` 로 여러 줄이 나오는 것은 스트리밍 스냅숏이다. **마지막 것만** 센다
+  (그냥 더하면 2.7배로 부푼다). 단조 증가가 깨진 자리는 `scan` 끝 줄에 건수를 찍는다.
+
+## 개인정보
+
+- transcript 본문은 **저장하지 않는다.** 캐시에 들어가는 글은 작업 제목(60자)과 서브에이전트 설명뿐이고,
+  둘 다 쓰기 입구 하나에서 살균·비밀검사를 받는다. 걸리면 값 대신 `[가려짐:규칙이름]` 만 남는다.
+- `--titles=false` 로 제목 저장을 통째로 끌 수 있다. 우회 옵션은 만들지 않았다.
+
+## 시험
+
+```powershell
+gofmt -l .
+go vet ./...
+go test -count=1 ./...
+```
+
+시험 자료는 `testdata/` 에 있다. **실물이 아니라 익명화 규칙으로 새로 쓴 것**이다 (`testdata/README.md`).
