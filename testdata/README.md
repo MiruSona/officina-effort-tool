@@ -17,6 +17,12 @@
 | `sessions/small/` | 작은 세션 하나. JSONL 합이 `cost-state` 와 딱 맞는다 |
 | `sessions/nosubagents/` | `subagents/` 폴더가 없는 옛 세션 |
 | `sessions/inprogress/` | `cost-state` 줄이 없는 도는 중 세션 |
+| `notify/` | 서브에이전트 완료 알림이 섞인 세션. 이어받기·도구 세기 시험 |
 | `rules/ok.txt` · `rules/bad.txt` | 규칙 파일 문법 시험 |
 
-`sessions/` 는 통째로 `--projects` 뿌리로 쓴다. 그 아래 폴더 하나가 프로젝트 하나다.
+`sessions/` 와 `notify/` 는 각각 통째로 `--projects` 뿌리로 쓴다. 그 아래 폴더 하나가 프로젝트 하나다.
+**뿌리를 나눈 까닭** : `sessions/` 를 세는 회귀 시험(작업 수·안 바뀜 개수)이 있어서, 세션을 더하면 그
+시험들이 깨진다.
+
+`notify/` 의 `message.content` 는 분류 시험에 제목이 필요해서 **규칙 4를 따라 분류 낱말만 남긴 가짜
+문장**으로 새로 썼다. 사람 이름·경로·비밀값은 없다.

@@ -57,6 +57,10 @@ func New(rules *classify.Rules, tasks []model.Task, opt Options) *Estimator {
 		if t.HasWarn(collect.WarnInProgress) {
 			continue
 		}
+		// 일 아닌 칸과 미분류는 표본에서 뺀다. 거르는 자리는 여기 하나뿐이다.
+		if !t.Class.IsWork() {
+			continue
+		}
 		if !t.Start.IsZero() && t.Start.Before(cut) {
 			continue
 		}

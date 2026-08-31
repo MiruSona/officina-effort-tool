@@ -56,7 +56,8 @@ func TestRulesParseUnknownKeyFails(t *testing.T) {
 
 func TestDefaultRulesParse(t *testing.T) {
 	r := defaultRules(t)
-	if len(r.Seeds) != len(model.AllClasses) {
+	// 시드가 필요한 것은 일 칸 여섯과 미분류다. 일 아닌 칸은 예상 표본에 안 들어가 시드도 없다.
+	if len(r.Seeds) != len(model.WorkClasses)+1 {
 		t.Fatalf("시드 수 = %d", len(r.Seeds))
 	}
 	if r.MinSample != 5 || r.BlendMax != 12 {
@@ -105,7 +106,8 @@ func TestClassifyByTitleWhenNoAgent(t *testing.T) {
 
 func TestClassifyFallsBackToUnknown(t *testing.T) {
 	r := defaultRules(t)
-	task := model.Task{Title: "zzz qqq"}
+	// 도구를 여러 번 썼는데 낱말이 하나도 안 맞으면 사람이 볼 몫이라 미분류다.
+	task := model.Task{Title: "zzz qqq", Tools: map[string]int{"Bash": 5}}
 	c, by := r.Task(&task)
 	if c != model.ClassUnknown || by != ByDefault {
 		t.Fatalf("분류 = %s (%s)", c, by)

@@ -72,6 +72,44 @@ type Meta struct {
 	Model       string `json:"model"`
 }
 
+// 도구 이름이 이보다 길면 우리가 아는 도구가 아니다. 표를 깨지 않게 버린다.
+const maxToolNameLen = 48
+
+// ToolNames 는 assistant 줄 message.content 의 tool_use 블록 이름을 뽑는다.
+// input 은 명령줄·경로가 들어 있어 일부러 안 읽는다.
+func (l *Line) ToolNames() []string {
+	if len(l.Message.Content) == 0 {
+		return nil
+	}
+	var blocks []struct {
+		Type string `json:"type"`
+		Name string `json:"name"`
+	}
+	if json.Unmarshal(l.Message.Content, &blocks) != nil {
+		return nil
+	}
+	var out []string
+	for _, b := range blocks {
+		if b.Type != "tool_use" || !okToolName(b.Name) {
+			continue
+		}
+		out = append(out, b.Name)
+	}
+	return out
+}
+
+func okToolName(s string) bool {
+	if s == "" || len(s) > maxToolNameLen {
+		return false
+	}
+	for _, r := range s {
+		if r < 0x20 || r == 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
 // UserText 는 user 줄의 message.content 에서 첫 글 조각을 꺼낸다.
 func (l *Line) UserText() string {
 	if len(l.Message.Content) == 0 {

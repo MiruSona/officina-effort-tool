@@ -5,6 +5,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/mirusona/efforttool/internal/classify"
 	"github.com/mirusona/efforttool/internal/model"
 	"github.com/mirusona/efforttool/internal/store"
 )
@@ -29,19 +30,22 @@ func readCache(home string) (*store.Store, []model.Task, error) {
 }
 
 // filterTasks 는 분류·날짜·세션으로 작업을 거른다.
-func filterTasks(tasks []model.Task, class, since, session string) ([]model.Task, error) {
+// all 이 거짓이고 분류를 직접 고르지 않았으면 일 아닌 칸(대화·도구실행·잡무)은 뺀다.
+func filterTasks(tasks []model.Task, class, since, session string, all bool) ([]model.Task, int, error) {
 	var cut time.Time
 	if since != "" {
 		t, err := time.Parse("2006-01-02", since)
 		if err != nil {
-			return nil, fail(exitUsage, "--since 는 YYYY-MM-DD 꼴입니다 : %s", since)
+			return nil, 0, fail(exitUsage, "--since 는 YYYY-MM-DD 꼴입니다 : %s", since)
 		}
 		cut = t
 	}
 	if class != "" && !model.IsClass(class) {
-		return nil, fail(exitUsage, "모르는 분류 : %s", class)
+		return nil, 0, fail(exitUsage, "모르는 분류 : %s", class)
 	}
+	hideNonWork := !all && class == ""
 	var out []model.Task
+	dropped := 0
 	for _, t := range tasks {
 		if class != "" && string(t.Class) != class {
 			continue
@@ -52,9 +56,26 @@ func filterTasks(tasks []model.Task, class, since, session string) ([]model.Task
 		if session != "" && t.SessionID != session {
 			continue
 		}
+		if hideNonWork && isNonWork(t.Class) {
+			dropped++
+			continue
+		}
 		out = append(out, t)
 	}
-	return out, nil
+	return out, dropped, nil
+}
+
+// isNonWork 는 일 아닌 칸인지다. 미분류는 사람이 봐야 하므로 여기 안 든다.
+func isNonWork(c model.Class) bool {
+	return c == model.ClassChat || c == model.ClassTool || c == model.ClassChore
+}
+
+// classLabel 은 표에 찍을 분류 이름이다. 물려받은 값이면 화살표를 붙인다.
+func classLabel(t *model.Task) string {
+	if t.ClassBy == classify.ByInherit && t.Class != model.ClassUnknown {
+		return string(t.Class) + "←"
+	}
+	return string(t.Class)
 }
 
 func printJSON(v any) error {

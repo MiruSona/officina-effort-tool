@@ -17,6 +17,7 @@ func cmdList(args []string) error {
 	session := fs.String("session", "", "세션 하나만")
 	limit := fs.Int("limit", 20, "몇 줄까지")
 	sortBy := fs.String("sort", "wall", "wall|pure|tok")
+	all := fs.Bool("all", false, "일 아닌 칸(대화·도구실행·잡무)까지 보기")
 	wide := fs.Bool("wide", false, "화면 정렬 표")
 	asJSON := fs.Bool("json", false, "JSON 으로")
 	if err := parseFlags(fs, args); err != nil {
@@ -26,7 +27,7 @@ func cmdList(args []string) error {
 	if err != nil {
 		return err
 	}
-	tasks, err = filterTasks(tasks, *class, *since, *session)
+	tasks, _, err = filterTasks(tasks, *class, *since, *session, *all)
 	if err != nil {
 		return err
 	}
@@ -47,7 +48,7 @@ func cmdList(args []string) error {
 	rows := make([][]string, 0, len(tasks))
 	for _, t := range tasks {
 		rows = append(rows, []string{
-			shortID(t.PromptID), t.Start.Format("01-02 15:04"), string(t.Class),
+			shortID(t.PromptID), t.Start.Format("01-02 15:04"), classLabel(&t),
 			render.Minutes(t.WallMs), render.Minutes(t.PureMs),
 			render.Tokens(t.Usage.Sum().Total()),
 			fmt.Sprintf("%d", len(t.Agents)),

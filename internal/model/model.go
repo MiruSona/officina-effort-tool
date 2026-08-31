@@ -13,12 +13,35 @@ const (
 	ClassDoc      Class = "문서"
 	ClassReview   Class = "검토"
 	ClassUnknown  Class = "미분류"
+
+	// 일이 아닌 칸. 예상 공수 표본에서 뺀다.
+	ClassChat  Class = "대화"   // 사람과 주고받기만 한 것
+	ClassTool  Class = "도구실행" // ! 직접 명령 · 슬래시 명령 · 한 줄 셸 대행
+	ClassChore Class = "잡무"   // 커밋·푸시 같은 형상관리
 )
 
-// AllClasses 는 표를 찍는 차례다.
+// WorkClasses 는 「일」로 세는 칸이다. 예상 공수의 표본은 여기서만 뽑는다.
+var WorkClasses = []Class{
+	ClassResearch, ClassDesign, ClassBuild,
+	ClassMeasure, ClassDoc, ClassReview,
+}
+
+// AllClasses 는 표를 찍는 차례다 (일 → 미분류 → 일 아닌 것).
 var AllClasses = []Class{
 	ClassResearch, ClassDesign, ClassBuild,
 	ClassMeasure, ClassDoc, ClassReview, ClassUnknown,
+	ClassChat, ClassTool, ClassChore,
+}
+
+// IsWork 는 예상 공수 표본에 넣어도 되는 칸인지다.
+// 미분류는 「모르는 것」이지 일의 종류가 아니라 false 다.
+func (c Class) IsWork() bool {
+	for _, w := range WorkClasses {
+		if c == w {
+			return true
+		}
+	}
+	return false
 }
 
 func IsClass(s string) bool {
@@ -65,6 +88,49 @@ type Task struct {
 	Version   string     `json:"version"`
 	Origin    string     `json:"origin"`
 	Warn      []string   `json:"warn"`
+	// 메인 세션이 부른 도구 이름 → 횟수. 서브에이전트 것은 안 센다.
+	Tools map[string]int `json:"tools,omitempty"`
+}
+
+// ToolCalls 는 도구 호출 수 합이다.
+func (t *Task) ToolCalls() int {
+	n := 0
+	for _, v := range t.Tools {
+		n += v
+	}
+	return n
+}
+
+// ToolsIn 은 그 집합에 든 도구의 호출 수다.
+func (t *Task) ToolsIn(set map[string]bool) int {
+	n := 0
+	for name, v := range t.Tools {
+		if set[name] {
+			n += v
+		}
+	}
+	return n
+}
+
+// ToolsOut 은 어느 집합에도 안 든 도구의 호출 수다.
+func (t *Task) ToolsOut(sets ...map[string]bool) int {
+	n := 0
+	for name, v := range t.Tools {
+		if inAnySet(name, sets) {
+			continue
+		}
+		n += v
+	}
+	return n
+}
+
+func inAnySet(name string, sets []map[string]bool) bool {
+	for _, s := range sets {
+		if s[name] {
+			return true
+		}
+	}
+	return false
 }
 
 func (t *Task) HasWarn(w string) bool {

@@ -24,6 +24,7 @@ func cmdStats(args []string) error {
 	class := fs.String("class", "", "분류 하나만")
 	since := fs.String("since", "", "이 날부터 (YYYY-MM-DD)")
 	by := fs.String("by", "class", "class|agent|model|session")
+	all := fs.Bool("all", false, "일 아닌 칸(대화·도구실행·잡무)까지 보기")
 	wide := fs.Bool("wide", false, "화면 정렬 표")
 	asJSON := fs.Bool("json", false, "JSON 으로")
 	if err := parseFlags(fs, args); err != nil {
@@ -33,7 +34,7 @@ func cmdStats(args []string) error {
 	if err != nil {
 		return err
 	}
-	tasks, err = filterTasks(tasks, *class, *since, "")
+	tasks, dropped, err := filterTasks(tasks, *class, *since, "", *all)
 	if err != nil {
 		return err
 	}
@@ -47,7 +48,7 @@ func cmdStats(args []string) error {
 	if *asJSON {
 		return printJSON(buckets)
 	}
-	printStatsHead(tasks)
+	printStatsHead(tasks, dropped)
 	printCoverWarn(st)
 	head := []string{"칸", "건수", "벽시계", "순수시간", "토큰", "ms/1K tok"}
 	rows := make([][]string, 0, len(buckets))
@@ -66,7 +67,7 @@ func cmdStats(args []string) error {
 	return nil
 }
 
-func printStatsHead(tasks []model.Task) {
+func printStatsHead(tasks []model.Task, dropped int) {
 	noSub, unknown := 0, 0
 	for _, t := range tasks {
 		if t.HasWarn(collect.WarnNoSubagent) {
@@ -77,8 +78,12 @@ func printStatsHead(tasks []model.Task) {
 		}
 	}
 	n := float64(len(tasks))
-	fmt.Printf("작업 %d건 · 미분류 %.0f%% · 서브기록없음 %.0f%%\n\n",
+	fmt.Printf("작업 %d건 · 미분류 %.0f%% · 서브기록없음 %.0f%%",
 		len(tasks), float64(unknown)/n*100, float64(noSub)/n*100)
+	if dropped > 0 {
+		fmt.Printf(" · 일 아닌 것 %d건 뺌(--all 로 봄)", dropped)
+	}
+	fmt.Print("\n\n")
 }
 
 // printCoverWarn 은 쪼갠 합이 세션 총계보다 작을 때 알린다. 배분은 하지 않는다.

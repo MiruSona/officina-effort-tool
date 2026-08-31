@@ -7,7 +7,8 @@ import (
 )
 
 // SchemaVersion 은 캐시 모양 판이다. 바뀌면 전체 재스캔한다.
-const SchemaVersion = "1"
+// 1 → 2 : Task.Tools (도구 이름별 호출 수) 추가.
+const SchemaVersion = "2"
 
 // FileState 는 파일 하나를 어디까지 읽었는지다.
 type FileState struct {
@@ -26,17 +27,25 @@ func NewScanState() *ScanState {
 	return &ScanState{Schema: SchemaVersion, Files: map[string]FileState{}}
 }
 
+// LoadScanState 는 증분 기록을 읽는다.
+// 판이 다르면 Files 는 비우고 Schema 에는 파일에 적힌 옛 판을 담는다 — 호출자가 판을 비교할 수 있어야 한다.
 func (s *Store) LoadScanState() *ScanState {
 	raw, err := os.ReadFile(filepath.Join(s.cacheDir(), "scanstate.json"))
 	if err != nil {
 		return NewScanState()
 	}
 	var st ScanState
-	if json.Unmarshal(raw, &st) != nil || st.Schema != SchemaVersion || st.Files == nil {
+	if json.Unmarshal(raw, &st) != nil {
 		return NewScanState()
+	}
+	if st.Schema != SchemaVersion || st.Files == nil {
+		return &ScanState{Schema: st.Schema, Files: map[string]FileState{}}
 	}
 	return &st
 }
+
+// Stale 은 캐시가 옛 판이라 통째로 다시 읽어야 하는지다.
+func (st *ScanState) Stale() bool { return st.Schema != SchemaVersion }
 
 func (s *Store) SaveScanState(st *ScanState) error {
 	st.Schema = SchemaVersion

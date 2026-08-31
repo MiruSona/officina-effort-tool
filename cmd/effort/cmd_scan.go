@@ -62,6 +62,7 @@ func cmdScan(args []string) error {
 	if err != nil {
 		return fail(exitUsage, "%v", err)
 	}
+	printMissingKinds(rules, st.RulesPath())
 
 	dirs, err := pickProjectDirs(root, *project, *all)
 	if err != nil {
@@ -75,10 +76,15 @@ func cmdScan(args []string) error {
 	defer lock.Release()
 
 	state := st.LoadScanState()
-	if *rebuild {
+	// 판이 다르면 옛 작업에 새 칸이 없다. 섞이면 분류가 조용히 틀리므로 rebuild 와 똑같이 다룬다.
+	full := *rebuild || state.Stale()
+	if state.Stale() {
+		fmt.Printf("캐시 판이 %s → %s 로 바뀌어 전부 다시 읽습니다.\n", oldSchemaName(state.Schema), store.SchemaVersion)
+	}
+	if full {
 		state = store.NewScanState()
 	}
-	oldTasks, oldSessions := loadOld(st, *rebuild)
+	oldTasks, oldSessions := loadOld(st, full)
 
 	tasksBySession := groupTasks(oldTasks)
 	sessionByID := map[string]model.Session{}
@@ -116,10 +122,29 @@ func cmdScan(args []string) error {
 	tot.tasks = len(tasks)
 	tot.sessions = len(sessions)
 	printScanSummary(tot, st.Home())
+	printClassCounts(tasks)
 	if tot.lines > 0 && float64(tot.bad)/float64(tot.lines) > badRatioLimit {
 		return fail(exitCorrupt, "손상 줄이 %.1f%% 로 상한 2%% 를 넘었습니다", float64(tot.bad)/float64(tot.lines)*100)
 	}
 	return nil
+}
+
+// printMissingKinds 는 rules.txt 에 새 규칙 종류가 없을 때 알린다. 파일은 사람 정본이라 안 덮는다.
+func printMissingKinds(rules *classify.Rules, path string) {
+	missing := rules.MissingKinds()
+	if len(missing) == 0 {
+		return
+	}
+	fmt.Printf("주의 : rules.txt 에 %s 줄이 없어 그 규칙이 꺼져 있습니다 (%s).\n",
+		strings.Join(missing, " · "), path)
+	fmt.Println("      옛 파일이면 지우고 scan 을 다시 돌리면 새 기본값으로 만들어집니다.")
+}
+
+func oldSchemaName(s string) string {
+	if s == "" {
+		return "없음"
+	}
+	return s
 }
 
 func loadOld(st *store.Store, rebuild bool) ([]model.Task, []model.Session) {
@@ -176,14 +201,12 @@ func scanOne(path string, state *store.ScanState, rules *classify.Rules, keepTit
 	if err != nil {
 		return false, fail(exitRead, "세션을 못 읽었습니다 (%s) : %v", filepath.Base(path), err)
 	}
-	for i := range res.Tasks {
-		t := &res.Tasks[i]
-		if !keepTitles {
-			t.Title = ""
+	// 제목은 분류에 쓰이므로 분류를 먼저 하고 그다음에 지운다.
+	rules.ClassifySession(res.Tasks)
+	if !keepTitles {
+		for i := range res.Tasks {
+			res.Tasks[i].Title = ""
 		}
-		c, by := rules.Task(t)
-		t.Class = c
-		t.ClassBy = by
 	}
 	tasks[res.Session.SessionID] = res.Tasks
 	sessions[res.Session.SessionID] = res.Session
@@ -248,6 +271,26 @@ func sessionFiles(root, dir string) ([]string, error) {
 	}
 	sort.Strings(out)
 	return out, nil
+}
+
+// printClassCounts 는 분류 결과를 한 줄로 찍는다. 규칙을 손봤을 때 어디서 갈렸는지 볼 유일한 자리다.
+func printClassCounts(tasks []model.Task) {
+	byClass := map[model.Class]int{}
+	inherit := 0
+	for i := range tasks {
+		byClass[tasks[i].Class]++
+		if tasks[i].ClassBy == classify.ByInherit && tasks[i].Class != model.ClassUnknown {
+			inherit++
+		}
+	}
+	var parts []string
+	for _, c := range model.AllClasses {
+		if byClass[c] == 0 {
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s %d", c, byClass[c]))
+	}
+	fmt.Printf("분류 : %s · 이어받기 %d\n", strings.Join(parts, " · "), inherit)
 }
 
 func printScanSummary(t scanTotals, home string) {

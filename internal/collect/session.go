@@ -147,6 +147,21 @@ func applyLine(b *taskBuild, line *jsonl.Line) {
 	}
 	if line.Type == "assistant" {
 		putAssistant(b.d, line)
+		countTools(t, line)
+	}
+}
+
+// countTools 는 메인 세션이 부른 도구 이름을 센다. 서브에이전트 파일은 여기로 안 온다.
+func countTools(t *model.Task, line *jsonl.Line) {
+	names := line.ToolNames()
+	if len(names) == 0 {
+		return
+	}
+	if t.Tools == nil {
+		t.Tools = map[string]int{}
+	}
+	for _, n := range names {
+		t.Tools[n]++
 	}
 }
 

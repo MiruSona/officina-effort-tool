@@ -12,8 +12,26 @@ const (
 	ByWord      = "낱말"
 	ByAgentType = "에이전트"
 	ByTitle     = "제목"
+	ByOrigin    = "원인"   // 도구실행·대화
+	ByInherit   = "이어받기" // 알림이 앞 작업에서 물려받음
+	ByWeb       = "웹조사"
+	ByChore     = "잡무"
 	ByDefault   = "기본"
 )
+
+// 서브에이전트 완료 알림을 알아보는 값.
+const (
+	OriginNotify = "task-notification"
+	OriginPeer   = "peer"
+)
+
+// 알림 제목의 두 꼴. 살균이 < 를 ‹ 로 접어서 캐시에는 ‹ 꼴로 남는다.
+var notifyTitles = []string{"‹task-notification›", "<task-notification>"}
+
+// Ctx 는 작업 하나 바깥의 사정이다. 지금은 같은 세션 직전 일 칸 분류 하나뿐이다.
+type Ctx struct {
+	Prev model.Class
+}
 
 // Agent 는 서브에이전트 하나의 분류를 정한다 (순위 1~3).
 func (r *Rules) Agent(a *model.Agent) (model.Class, string) {
@@ -30,8 +48,58 @@ func (r *Rules) Agent(a *model.Agent) (model.Class, string) {
 	return "", ""
 }
 
-// Task 는 작업 하나의 분류를 정한다. 토큰을 가장 많이 쓴 서브에이전트가 이긴다.
+// Task 는 작업 하나를 바깥 사정 없이 분류한다.
 func (r *Rules) Task(t *model.Task) (model.Class, string) {
+	return r.TaskWith(t, Ctx{})
+}
+
+// TaskWith 는 작업 하나를 분류한다. 설계 표 2 의 아홉 순위를 그대로 탄다.
+func (r *Rules) TaskWith(t *model.Task, ctx Ctx) (model.Class, string) {
+	if isNotification(t) {
+		if ctx.Prev == "" {
+			return model.ClassUnknown, ByInherit
+		}
+		return ctx.Prev, ByInherit
+	}
+	title := strings.TrimSpace(t.Title)
+	if r.isToolRunTitle(title) {
+		return model.ClassTool, ByOrigin
+	}
+	if c, by, ok := r.byAgents(t); ok {
+		return c, by
+	}
+	if c, ok := r.matchSuffix(title); ok {
+		return c, ByTitle
+	}
+	if c, ok := r.matchContains(title); ok {
+		return c, ByTitle
+	}
+	return r.byTools(t, title)
+}
+
+// byTools 는 도구 신호로 보는 순위 5~9 다.
+func (r *Rules) byTools(t *model.Task, title string) (model.Class, string) {
+	write := r.Set(SetWrite)
+	if r.isChore(title) && t.ToolsIn(write) == 0 {
+		return model.ClassChore, ByChore
+	}
+	web, read := r.Set(SetWeb), r.Set(SetRead)
+	if t.ToolCalls() > 0 && t.ToolsIn(web) > 0 && t.ToolsOut(web, read) == 0 {
+		return model.ClassResearch, ByWeb
+	}
+	shell := r.Set(SetShell)
+	shellCalls := t.ToolsIn(shell)
+	if len(t.Agents) == 0 && shellCalls > 0 && shellCalls <= r.ShellMax && t.ToolsOut(shell) == 0 {
+		return model.ClassTool, ByOrigin
+	}
+	if t.ToolCalls() == 0 && len(t.Agents) == 0 {
+		return model.ClassChat, ByOrigin
+	}
+	return model.ClassUnknown, ByDefault
+}
+
+// byAgents 는 서브에이전트 분류 중 토큰을 가장 많이 쓴 것을 고른다.
+func (r *Rules) byAgents(t *model.Task) (model.Class, string, bool) {
 	best := model.Class("")
 	bestBy := ""
 	var bestTok int64
@@ -47,17 +115,45 @@ func (r *Rules) Task(t *model.Task) (model.Class, string) {
 			best, bestBy, bestTok = c, by, tok
 		}
 	}
-	if best != "" {
-		return best, bestBy
+	return best, bestBy, best != ""
+}
+
+// isNotification 은 서브에이전트 완료 알림·다른 세션 메시지인지 본다.
+func isNotification(t *model.Task) bool {
+	if t.Origin == OriginNotify || t.Origin == OriginPeer {
+		return true
 	}
 	title := strings.TrimSpace(t.Title)
-	if c, ok := r.matchSuffix(title); ok {
-		return c, ByTitle
+	for _, p := range notifyTitles {
+		if strings.HasPrefix(title, p) {
+			return true
+		}
 	}
-	if c, ok := r.matchContains(title); ok {
-		return c, ByTitle
+	return false
+}
+
+func (r *Rules) isToolRunTitle(title string) bool {
+	for _, p := range r.Prefixes {
+		if p != "" && strings.HasPrefix(title, p) {
+			return true
+		}
 	}
-	return model.ClassUnknown, ByDefault
+	for _, w := range r.Contains {
+		if w != "" && strings.Contains(title, w) {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *Rules) isChore(title string) bool {
+	low := strings.ToLower(title)
+	for _, w := range r.ChoreWord {
+		if w != "" && strings.Contains(low, strings.ToLower(w)) {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Rules) matchSuffix(s string) (model.Class, bool) {

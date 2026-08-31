@@ -29,14 +29,18 @@ func cmdRules(args []string) error {
 	}
 	if *check {
 		fmt.Printf("rules.txt 문법 이상 없음 : %s\n", st.RulesPath())
+		printMissingKinds(rules, st.RulesPath())
 		return nil
 	}
 	fmt.Printf("규칙 파일 : %s\n\n", st.RulesPath())
 	printWordRules(rules)
 	fmt.Println()
+	printToolRules(rules)
+	fmt.Println()
 	printSizeRules(rules)
 	fmt.Println()
 	printSeedRules(rules)
+	printMissingKinds(rules, st.RulesPath())
 	fmt.Printf("\n표본 %d건 미만이면 시드만, %d건 이상이면 실측만 씁니다.\n", rules.MinSample, rules.BlendMax)
 	return nil
 }
@@ -62,6 +66,27 @@ func printWordRules(r *classify.Rules) {
 		}
 		rows = append(rows, []string{string(c), joinOr(w), joinOr(a)})
 	}
+	fmt.Print(render.Table(head, rows, render.Pipe))
+}
+
+// printToolRules 는 도구 집합과 도구실행·잡무 낱말을 찍는다.
+func printToolRules(r *classify.Rules) {
+	head := []string{"쓰임", "값"}
+	rows := [][]string{}
+	for _, n := range []string{classify.SetWrite, classify.SetWeb, classify.SetRead, classify.SetShell} {
+		names := make([]string, 0, len(r.Set(n)))
+		for t := range r.Set(n) {
+			names = append(names, t)
+		}
+		sort.Strings(names)
+		rows = append(rows, []string{"도구 " + n, joinOr(names)})
+	}
+	rows = append(rows,
+		[]string{"도구실행 접두", joinOr(r.Prefixes)},
+		[]string{"도구실행 낱말", joinOr(r.Contains)},
+		[]string{"잡무 낱말", joinOr(r.ChoreWord)},
+		[]string{"셸 상한", fmt.Sprintf("%d회", r.ShellMax)},
+	)
 	fmt.Print(render.Table(head, rows, render.Pipe))
 }
 

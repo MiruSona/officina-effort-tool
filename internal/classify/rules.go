@@ -17,6 +17,16 @@ type Seed struct {
 	P80 float64
 }
 
+// 도구 집합 이름. 넷뿐이고 늘리려면 코드를 고쳐야 한다 (설계 3-3).
+const (
+	SetWrite = "쓰기"
+	SetWeb   = "웹"
+	SetRead  = "읽기"
+	SetShell = "셸"
+)
+
+var toolSetNames = []string{SetWrite, SetWeb, SetRead, SetShell}
+
 // Rules 는 rules.txt 한 벌이다.
 type Rules struct {
 	Words     map[string]model.Class // 낱말 → 분류
@@ -27,10 +37,16 @@ type Rules struct {
 	Human     map[model.Class]float64
 	MinSample int
 	BlendMax  int
+
+	ToolSets  map[string]map[string]bool // 집합 이름 → 도구 이름
+	Prefixes  []string                   // 도구실행 접두
+	Contains  []string                   // 도구실행 포함낱말
+	ChoreWord []string                   // 잡무 낱말
+	ShellMax  int                        // 한 줄 셸 대행으로 볼 호출 상한
 }
 
 func newRules() *Rules {
-	return &Rules{
+	r := &Rules{
 		Words:     map[string]model.Class{},
 		Agents:    map[string]model.Class{},
 		Sizes:     map[string]float64{},
@@ -38,7 +54,43 @@ func newRules() *Rules {
 		Human:     map[model.Class]float64{},
 		MinSample: 5,
 		BlendMax:  12,
+		ToolSets:  map[string]map[string]bool{},
+		ShellMax:  2,
 	}
+	for _, n := range toolSetNames {
+		r.ToolSets[n] = map[string]bool{}
+	}
+	return r
+}
+
+// MissingKinds 는 rules.txt 에 아예 없는 새 규칙 종류를 알려 준다.
+// rules.txt 는 사람의 정본이라 판이 올라도 안 덮으므로, 옛 파일을 쓰면 규칙이 조용히 꺼진다.
+func (r *Rules) MissingKinds() []string {
+	var out []string
+	empty := true
+	for _, n := range toolSetNames {
+		if len(r.ToolSets[n]) > 0 {
+			empty = false
+		}
+	}
+	if empty {
+		out = append(out, "tool")
+	}
+	if len(r.Prefixes) == 0 && len(r.Contains) == 0 {
+		out = append(out, "runpre·runin")
+	}
+	if len(r.ChoreWord) == 0 {
+		out = append(out, "chore")
+	}
+	return out
+}
+
+// Set 은 도구 집합 하나다. 없는 이름이면 빈 집합을 준다.
+func (r *Rules) Set(name string) map[string]bool {
+	if s, ok := r.ToolSets[name]; ok {
+		return s
+	}
+	return map[string]bool{}
 }
 
 // DefaultRulesText 는 rules.txt 가 없을 때 처음 한 번 만들어 주는 내용이다.
@@ -50,6 +102,11 @@ const DefaultRulesText = `# effort 분류 규칙. 탭으로 나눈다. # 은 주
 # human  <분류>  <배율>        사람 눈금 × 배율
 # min    sample  <수>          이 아래면 시드만 쓴다
 # blend  sample  <수>          이 위면 실측만 쓴다
+# tool   <집합>  <도구이름>    집합은 쓰기·웹·읽기·셸 넷뿐
+# runpre <접두>                제목이 이것으로 시작하면 도구실행
+# runin  <낱말>                제목에 이것이 들어 있으면 도구실행
+# chore  <낱말>                제목에 이것이 있고 쓰기 도구가 없으면 잡무
+# shell  max     <수>          이 수 이하 셸 호출만 도구실행으로 본다
 
 word	조사	조사
 word	조사	확인
@@ -95,6 +152,40 @@ word	검토	review
 agent	조사	Explore
 agent	설계	Plan
 agent	검토	superpowers:code-reviewer
+
+tool	쓰기	Write
+tool	쓰기	Edit
+tool	쓰기	NotebookEdit
+tool	쓰기	Artifact
+tool	웹	WebSearch
+tool	웹	WebFetch
+tool	읽기	Read
+tool	읽기	Grep
+tool	읽기	Glob
+tool	읽기	ToolSearch
+tool	셸	Bash
+tool	셸	PowerShell
+
+runpre	‹bash-input›
+runpre	<bash-input>
+runpre	‹command-message›
+runpre	<command-message>
+runpre	‹local-command-caveat›
+runpre	<local-command-caveat>
+runpre	## Context Usage
+runpre	/
+runin	loop wakeup
+
+chore	커밋
+chore	푸시
+chore	commit
+chore	push
+chore	stash
+chore	머지
+chore	merge
+chore	rebase
+
+shell	max	2
 
 size	S	0.6
 size	M	1.0
@@ -147,15 +238,44 @@ func ParseRules(r io.Reader) (*Rules, error) {
 	return out, nil
 }
 
+// 종류별로 있어야 하는 최소 칸수. runpre·runin·chore 는 값이 하나뿐이다.
+var minFields = map[string]int{
+	"word": 3, "agent": 3, "size": 3, "seed": 5, "human": 3,
+	"min": 3, "blend": 3, "tool": 3, "shell": 3,
+	"runpre": 2, "runin": 2, "chore": 2,
+}
+
 func applyRuleLine(out *Rules, f []string, n int) error {
-	if len(f) < 3 {
-		return fmt.Errorf("rules.txt %d번째 줄: 칸이 모자랍니다 (탭으로 세 칸 이상)", n)
+	if len(f) == 0 {
+		return nil
 	}
+	need, ok := minFields[f[0]]
+	if !ok {
+		return fmt.Errorf("rules.txt %d번째 줄: 모르는 종류 %q", n, f[0])
+	}
+	if len(f) < need {
+		return fmt.Errorf("rules.txt %d번째 줄: 칸이 모자랍니다 (탭으로 %d칸 이상)", n, need)
+	}
+	// 종류가 쓰는 칸까지만 본다. 뒤에 붙은 것은 주석이다.
+	f = f[:need]
 	switch f[0] {
 	case "word":
 		return addClassKey(out.Words, f[1], f[2], n)
 	case "agent":
 		return addClassKey(out.Agents, f[1], f[2], n)
+	case "tool":
+		return addToolName(out, f[1], f[2], n)
+	case "runpre":
+		out.Prefixes = append(out.Prefixes, f[1])
+		return nil
+	case "runin":
+		out.Contains = append(out.Contains, f[1])
+		return nil
+	case "chore":
+		out.ChoreWord = append(out.ChoreWord, f[1])
+		return nil
+	case "shell":
+		return setNamedInt(&out.ShellMax, f, "max", n)
 	case "size":
 		v, err := strconv.ParseFloat(f[2], 64)
 		if err != nil {
@@ -176,11 +296,21 @@ func applyRuleLine(out *Rules, f []string, n int) error {
 		out.Human[model.Class(f[1])] = v
 		return nil
 	case "min":
-		return setSampleBound(&out.MinSample, f, n)
+		return setNamedInt(&out.MinSample, f, "sample", n)
 	case "blend":
-		return setSampleBound(&out.BlendMax, f, n)
+		return setNamedInt(&out.BlendMax, f, "sample", n)
 	}
 	return fmt.Errorf("rules.txt %d번째 줄: 모르는 종류 %q", n, f[0])
+}
+
+// addToolName 은 도구 집합에 이름 하나를 넣는다. 집합 이름은 넷뿐이다.
+func addToolName(out *Rules, set, name string, n int) error {
+	s, ok := out.ToolSets[set]
+	if !ok {
+		return fmt.Errorf("rules.txt %d번째 줄: 모르는 도구 집합 %q (쓰기·웹·읽기·셸 만 됩니다)", n, set)
+	}
+	s[name] = true
+	return nil
 }
 
 func addClassKey(m map[string]model.Class, class, key string, n int) error {
@@ -210,9 +340,9 @@ func addSeed(out *Rules, f []string, n int) error {
 	return nil
 }
 
-func setSampleBound(dst *int, f []string, n int) error {
-	if f[1] != "sample" {
-		return fmt.Errorf("rules.txt %d번째 줄: 모르는 이름 %q (sample 만 됩니다)", n, f[1])
+func setNamedInt(dst *int, f []string, want string, n int) error {
+	if f[1] != want {
+		return fmt.Errorf("rules.txt %d번째 줄: 모르는 이름 %q (%s 만 됩니다)", n, f[1], want)
 	}
 	v, err := strconv.Atoi(f[2])
 	if err != nil {
@@ -229,9 +359,6 @@ func splitFields(line string) []string {
 		p = strings.TrimSpace(p)
 		if p == "" {
 			continue
-		}
-		if strings.HasPrefix(p, "#") {
-			break
 		}
 		out = append(out, p)
 	}
