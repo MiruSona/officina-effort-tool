@@ -27,6 +27,13 @@ description: Use when estimating effort before starting work, filling the 실제
 `estimate` 가 내는 표는 그대로 보고의 공수 표에 붙는다. 옵션은 명령 바로 뒤,
 작업 id 는 맨 끝에 둔다.
 
+## rules.txt 는 언제 손대나
+
+- 코드가 새 규칙 종류를 더한 경우는 `scan` 이 빠진 종류의 기본 줄을 알아서 덧붙인다. 할 일 없다.
+- **낱말을 손으로 고쳤으면 `effort scan --rebuild`** 로 캐시를 다시 매긴다 — 규칙만 바뀐 것은
+  아직 scan 이 못 알아챈다 (todo `20260901-0178158e`).
+- 크기 배율(S 0.3 · M 1.0 · L 2.4 · XL 5.0)은 2026-09-01 실측으로 잡은 값이다. 옮기려면 먼저 잰다.
+
 ## 알아 둘 한계 둘
 
 1. **작업 한 건 = 사용자 프롬프트 한 개**라 우리가 말하는 소단계보다 잘다. `estimate` 값이

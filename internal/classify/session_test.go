@@ -190,7 +190,7 @@ func TestClassifyChatWord(t *testing.T) {
 func TestClassifySideToolsOnlyIsChat(t *testing.T) {
 	r := defaultRules(t)
 	task := model.Task{Title: "zzz qqq", Tools: map[string]int{
-		"SendMessage": 3, "TaskStop": 1, "Monitor": 2,
+		"SendMessage": 3, "TaskStop": 1, "Monitor": 2, "ScheduleWakeup": 1,
 	}}
 	c, by := r.Task(&task)
 	if c != model.ClassChat || by != ByOrigin {

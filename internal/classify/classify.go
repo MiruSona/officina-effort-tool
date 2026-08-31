@@ -85,6 +85,7 @@ var sideTools = map[string]bool{
 	"Monitor":         true,
 	"TaskStop":        true,
 	"ListAgents":      true,
+	"ScheduleWakeup":  true,
 }
 
 // byTools 는 도구 신호로 보는 순위 5~9 다. 곁도구를 뺀 셈으로 본다.
