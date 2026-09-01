@@ -5,7 +5,9 @@ import (
 	"os"
 
 	"github.com/mirusona/efforttool/internal/estimate"
+	"github.com/mirusona/efforttool/internal/model"
 	"github.com/mirusona/efforttool/internal/render"
+	"github.com/mirusona/efforttool/internal/store"
 )
 
 func cmdEstimate(args []string) error {
@@ -14,6 +16,8 @@ func cmdEstimate(args []string) error {
 	from := fs.String("from", "", "표 파일 (- 면 표준입력)")
 	human := fs.Bool("human", false, "사람 눈금 칸도 같이 찍는다")
 	metric := fs.String("metric", "wall", "wall|pure")
+	unit := fs.String("unit", estimate.UnitGroup, "표본 단위 : group|task")
+	keyStr := fs.String("group", "", "묶기 열쇠 : mark|gap:30m|class|session|none")
 	since := fs.Int("days", 120, "표본으로 볼 지난 날 수")
 	noX2 := fs.Bool("no-x2", false, "실측 ×2 규칙 끄기")
 	freeze := fs.Bool("freeze", false, "동결→재측정 한 바퀴 ×1.5")
@@ -24,6 +28,9 @@ func cmdEstimate(args []string) error {
 	}
 	if *metric != "wall" && *metric != "pure" {
 		return fail(exitUsage, "--metric 은 wall 또는 pure 입니다 : %s", *metric)
+	}
+	if *unit != estimate.UnitGroup && *unit != estimate.UnitTask {
+		return fail(exitUsage, "--unit 은 group 또는 task 입니다 : %s", *unit)
 	}
 	if fs.NArg() > 0 && *from != "" {
 		return fail(exitUsage, "소단계 인자와 --from 은 같이 못 씁니다. 하나만 주세요.")
@@ -44,13 +51,21 @@ func cmdEstimate(args []string) error {
 	if err != nil {
 		return fail(exitUsage, "%v", err)
 	}
+	if err := estimate.CheckItems(items, rules); err != nil {
+		return fail(exitUsage, "%v", err)
+	}
 	opt := estimate.DefaultOptions()
 	opt.Metric = *metric
+	opt.Unit = *unit
 	opt.SinceDay = *since
 	opt.NoX2 = *noX2
 	opt.Freeze = *freeze
 	opt.Human = *human
-	e := estimate.New(rules, tasks, opt)
+	samples, err := samplesFor(st, tasks, opt.Unit, *keyStr)
+	if err != nil {
+		return err
+	}
+	e := estimate.New(rules, samples, opt)
 
 	rows := make([]estimate.Row, 0, len(items))
 	for _, it := range items {
@@ -61,6 +76,18 @@ func cmdEstimate(args []string) error {
 	}
 	printEstimateTable(rows, *human, *wide)
 	return nil
+}
+
+// samplesFor 는 표본 단위에 맞는 표본을 만든다. 기본은 묶음(소단계) 단위다.
+func samplesFor(st *store.Store, tasks []model.Task, unit, keyStr string) ([]estimate.Sample, error) {
+	if unit == estimate.UnitTask {
+		return estimate.SamplesFromTasks(tasks), nil
+	}
+	groups, _, err := buildGroups(st, tasks, keyStr)
+	if err != nil {
+		return nil, err
+	}
+	return estimate.SamplesFromGroups(groups), nil
 }
 
 func readItems(args []string, from string) ([]estimate.Item, error) {

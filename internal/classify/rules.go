@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -43,6 +44,11 @@ type Rules struct {
 	Contains  []string                   // 도구실행 포함낱말
 	ChoreWord []string                   // 잡무 낱말
 	ShellMax  int                        // 한 줄 셸 대행으로 볼 호출 상한
+
+	ContFirst []string // 앞말 이어짐 글머리 낱말
+	ContStop  []string // 이어짐을 끊는 낱말
+	ContMax   int      // 앞 작업 끝에서 이 분 안쪽일 때만 이어짐
+	GapMax    int      // 자동 소단계 묶기의 간격 컷 (분)
 }
 
 func newRules() *Rules {
@@ -56,6 +62,8 @@ func newRules() *Rules {
 		BlendMax:  12,
 		ToolSets:  map[string]map[string]bool{},
 		ShellMax:  2,
+		ContMax:   10,
+		GapMax:    30,
 	}
 	for _, n := range toolSetNames {
 		r.ToolSets[n] = map[string]bool{}
@@ -68,10 +76,11 @@ const (
 	KindTool  = "tool"
 	KindRun   = "runpre·runin"
 	KindChore = "chore"
+	KindCont  = "contfirst·contstop·cont·gap"
 )
 
 // KindOrder 는 종류를 보여 주고 덧붙이는 차례다.
-var KindOrder = []string{KindTool, KindRun, KindChore}
+var KindOrder = []string{KindTool, KindRun, KindChore, KindCont}
 
 // MissingKinds 는 rules.txt 에 아예 없는 새 규칙 종류를 알려 준다.
 // rules.txt 는 사람의 정본이라 판이 올라도 안 덮으므로, 옛 파일을 쓰면 규칙이 조용히 꺼진다.
@@ -92,6 +101,9 @@ func (r *Rules) MissingKinds() []string {
 	if len(r.ChoreWord) == 0 {
 		out = append(out, KindChore)
 	}
+	if len(r.ContFirst) == 0 && len(r.ContStop) == 0 {
+		out = append(out, KindCont)
+	}
 	return out
 }
 
@@ -110,13 +122,15 @@ func (r *Rules) Set(name string) map[string]bool {
 
 // DefaultRulesText 는 rules.txt 가 없을 때 처음 한 번 만들어 주는 내용이다.
 // 종류별 덩어리는 kindDefaults 에서 가져다 쓰므로 「빠진 종류 덧붙이기」와 어긋날 수 없다.
-var DefaultRulesText = defaultHead + defaultToolLines + "\n" + defaultRunLines + "\n" + defaultChoreLines + "\n" + defaultTail
+var DefaultRulesText = defaultHead + defaultToolLines + "\n" + defaultRunLines + "\n" +
+	defaultChoreLines + "\n" + defaultContLines + "\n" + defaultTail
 
 // kindDefaults 는 그 종류가 rules.txt 에 한 줄도 없을 때 더해 줄 기본 줄이다.
 var kindDefaults = map[string]string{
 	KindTool:  defaultToolLines,
 	KindRun:   defaultRunLines,
 	KindChore: defaultChoreLines,
+	KindCont:  defaultContLines,
 }
 
 const defaultToolLines = `tool	쓰기	Write
@@ -155,6 +169,32 @@ chore	merge
 chore	rebase
 `
 
+const defaultContLines = `contfirst	좋아
+contfirst	그럼
+contfirst	그러면
+contfirst	아하
+contfirst	일단
+contfirst	오케
+contfirst	그래
+contfirst	넵
+contfirst	이어서
+contfirst	계속
+contfirst	그리고
+contfirst	1.
+contfirst	2.
+contfirst	3.
+contstop	다른 에이전트
+contstop	다른쪽
+contstop	새 세션
+contstop	새세션
+contstop	궁금
+contstop	혹시
+contstop	하려고
+contstop	문제가
+cont	max	10
+gap	max	30
+`
+
 const defaultHead = `# effort 분류 규칙. 탭으로 나눈다. # 은 주석.
 # word   <분류>  <낱말>        설명 끝말·포함 낱말
 # agent  <분류>  <agentType>
@@ -168,6 +208,10 @@ const defaultHead = `# effort 분류 규칙. 탭으로 나눈다. # 은 주석.
 # runin  <낱말>                제목에 이것이 들어 있으면 도구실행
 # chore  <낱말>                제목에 이것이 있고 쓰기 도구가 없으면 잡무
 # shell  max     <수>          이 수 이하 셸 호출만 도구실행으로 본다
+# contfirst <낱말>             제목이 이것으로 시작하면 앞 일을 이어가는 말로 본다
+# contstop  <낱말>             제목에 이것이 있으면 이어가지 않는다 (새 주제·잡담)
+# cont      max     <분>       앞 작업 끝에서 이 분 안쪽일 때만 이어간다
+# gap       max     <분>       자동 소단계 묶기의 간격 컷
 
 word	조사	조사
 word	조사	확인
@@ -286,6 +330,7 @@ var minFields = map[string]int{
 	"word": 3, "agent": 3, "size": 3, "seed": 5, "human": 3,
 	"min": 3, "blend": 3, "tool": 3, "shell": 3,
 	"runpre": 2, "runin": 2, "chore": 2,
+	"contfirst": 2, "contstop": 2, "cont": 3, "gap": 3,
 }
 
 func applyRuleLine(out *Rules, f []string, n int) error {
@@ -317,8 +362,18 @@ func applyRuleLine(out *Rules, f []string, n int) error {
 	case "chore":
 		out.ChoreWord = append(out.ChoreWord, f[1])
 		return nil
+	case "contfirst":
+		out.ContFirst = append(out.ContFirst, f[1])
+		return nil
+	case "contstop":
+		out.ContStop = append(out.ContStop, f[1])
+		return nil
 	case "shell":
 		return setNamedInt(&out.ShellMax, f, "max", n)
+	case "cont":
+		return setNamedInt(&out.ContMax, f, "max", n)
+	case "gap":
+		return setNamedInt(&out.GapMax, f, "max", n)
 	case "size":
 		v, err := strconv.ParseFloat(f[2], 64)
 		if err != nil {
@@ -408,18 +463,39 @@ func splitFields(line string) []string {
 	return out
 }
 
+// sortByLenDesc 는 긴 낱말부터 보게 차례를 잡는다.
+// 길이가 같으면 글자 차례로 가른다 — 열쇠가 map 이라, 안 가르면 돌릴 때마다 분류가 달라진다.
 func sortByLenDesc(v []string) {
-	for i := 1; i < len(v); i++ {
-		for j := i; j > 0 && len([]rune(v[j])) > len([]rune(v[j-1])); j-- {
-			v[j], v[j-1] = v[j-1], v[j]
+	sort.Slice(v, func(i, j int) bool {
+		li, lj := len([]rune(v[i])), len([]rune(v[j]))
+		if li != lj {
+			return li > lj
 		}
-	}
+		return v[i] < v[j]
+	})
 }
 
 // Size 는 크기 배율이다. 모르면 1.0.
+// 모르는 이름을 조용히 삼키지 않으려면 부르기 전에 HasSize 로 본다.
 func (r *Rules) Size(name string) float64 {
 	if v, ok := r.Sizes[strings.ToUpper(name)]; ok {
 		return v
 	}
 	return 1.0
+}
+
+// HasSize 는 아는 크기 이름인지다.
+func (r *Rules) HasSize(name string) bool {
+	_, ok := r.Sizes[strings.ToUpper(name)]
+	return ok
+}
+
+// SizeNames 는 아는 크기 이름을 배율 오름차순으로 준다.
+func (r *Rules) SizeNames() []string {
+	out := make([]string, 0, len(r.Sizes))
+	for n := range r.Sizes {
+		out = append(out, n)
+	}
+	sort.Slice(out, func(i, j int) bool { return r.Sizes[out[i]] < r.Sizes[out[j]] })
+	return out
 }

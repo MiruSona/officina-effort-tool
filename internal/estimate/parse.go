@@ -7,8 +7,22 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/mirusona/efforttool/internal/classify"
 	"github.com/mirusona/efforttool/internal/model"
 )
+
+// CheckItems 는 규칙을 읽은 뒤 크기 이름을 검사한다.
+// 파서는 규칙을 모르므로 여기서 본다. 모르는 크기를 M 으로 삼키면 조용한 오답이 된다.
+func CheckItems(items []Item, r *classify.Rules) error {
+	for _, it := range items {
+		if r.HasSize(it.Size) {
+			continue
+		}
+		return fmt.Errorf("모르는 크기 %q 입니다 (쓸 수 있는 크기 : %s)",
+			it.Size, strings.Join(r.SizeNames(), " · "))
+	}
+	return nil
+}
 
 // ParseArgs 는 `[이름:]분류[:크기]` 꼴 인자를 읽는다.
 func ParseArgs(args []string) ([]Item, error) {

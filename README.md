@@ -6,7 +6,14 @@ Claude Code 가 남긴 세션 기록(JSONL)만 읽어 **무슨 일에 시간과 
 - Go 표준 라이브러리만 쓴다 (바깥 라이브러리 0개, `CGO_ENABLED=0`).
 - **원본 JSONL 은 열기 전용**이다. 쓰기·이름바꾸기·삭제 코드 경로가 아예 없다.
 - 결과는 `%USERPROFILE%\.effort\` 아래에 둔다. `cache/` 는 지워도 `effort scan --rebuild` 로 되살아나는 파생물이고,
-  사람이 고치는 정본은 `rules.txt` 하나뿐이다.
+  사람이 고치는 정본은 **`rules.txt`(분류 규칙)와 `groups.txt`(소단계 경계) 둘**이다.
+
+## 숫자의 뜻
+
+- **벽시계** = 본줄 구간 ∪ 서브에이전트 구간의 **합집합**. 큐·파일이력·자리비움 같은 곁줄은 시간을 못 늘린다.
+  내역은 `main_wall_ms`(본줄) · `agent_wall_ms`(서브) 로 따로 남는다.
+- **순수시간** = 턴 시간(`turn_duration`)의 합. 벽시계를 넘으면 벽시계로 자르고 `순수시간잘림` 을 단다.
+- **묶음(소단계) 시간** = 안에 든 작업 구간의 합집합. 작업과 작업 **사이의 사람 대기는 안 든다.**
 
 ## 빌드
 
@@ -32,24 +39,34 @@ go build -o bin/effort.exe ./cmd/effort
 | --- | --- | --- |
 | `scan` | JSONL 을 훑어 작업 레코드를 만든다. 기본은 바뀐 파일만, `--rebuild` 는 통째로 | 읽기 `~/.claude/projects/**` · 쓰기 `.effort/cache/*` |
 | `stats` | 분류·에이전트·모델·세션별 건수 · 벽시계 · 순수시간 · 토큰 · 토큰당 시간 | 캐시만 읽는다 |
-| `estimate` | 소단계 목록을 받아 예상·범위 표를 낸다 | 캐시 + `rules.txt` |
-| `show` | 작업 하나 상세 (서브에이전트 · 모델별 토큰 · 세션 검산) | 캐시만 읽는다 |
-| `list` | 작업 목록 한 줄씩 | 캐시만 읽는다 |
+| `estimate` | 소단계 목록을 받아 예상·범위 표를 낸다. 표본 단위는 **묶음**이 기본(`--unit task` 로 옛 셈) | 캐시 + `rules.txt` |
+| `show` | 작업 하나 상세 (서브에이전트 · 부모 · 모델별 토큰 · 세션 검산) | 캐시만 읽는다 |
+| `list` | 작업 목록 한 줄씩. `--group KEY` 를 주면 묶음 표 | 캐시만 읽는다 |
+| `group` | **소단계 경계를 사람이 표시**한다. `--add "<이름>" <작업id…>` · `--drop <묶음id>` | 캐시 + 쓰기 `groups.txt` |
+| `actual` | **예상 표(`--from`)와 실제 묶음을 나란히** 놓아 배율(실제÷예상)을 낸다 | 캐시 + `groups.txt` |
 | `rules` | 분류 규칙 · 크기 배율 · 시드를 보여준다. `--check` 는 문법 검사 | `rules.txt` 만 읽는다 |
 | `version` · `help` | 판 · 도움말 | — |
 
-`stats` · `estimate` · `show` · `list` 는 **절대 쓰기를 안 한다.** 캐시가 없으면 그렇게 말하고 종료 2 다.
+`stats` · `estimate` · `show` · `list` · `actual` 은 **절대 쓰기를 안 한다.** 캐시가 없으면 그렇게 말하고 종료 2 다.
+쓰기를 하는 것은 `scan`(캐시·`rules.txt` 덧붙이기)과 `group --add/--drop`(`groups.txt`) 뿐이다.
+
+`actual` 이 짝을 못 찾은 소단계는 `—` 로 두고 합에서 뺀다. **없는 값을 지어내지 않는다.**
 
 ### 자주 쓰는 옵션
 
 ```
 effort scan     [--home DIR] [--projects DIR] [--project NAME|--all] [--rebuild] [--titles=false] [--quiet]
-effort stats    [--class C] [--since YYYY-MM-DD] [--by class|agent|model|session] [--wide|--json]
-effort estimate [소단계...] [--from FILE|-] [--human] [--metric wall|pure] [--days N] [--no-x2] [--freeze]
+effort stats    [--class C] [--since YYYY-MM-DD] [--by class|agent|model|session|group] [--group KEY] [--wide|--json]
+effort estimate [소단계...] [--from FILE|-] [--unit group|task] [--group KEY] [--human] [--metric wall|pure] [--days N] [--no-x2] [--freeze]
 effort show     <promptId|접두사> [--json]
-effort list     [--class C] [--since D] [--session ID] [--limit N] [--sort wall|pure|tok]
+effort list     [--class C] [--since D] [--session ID] [--group KEY] [--limit N] [--sort wall|pure|tok]
+effort group    [--add <이름>] [--class C] [--drop <묶음id>] [--since D] [--session ID] [--group KEY] [작업id...]
+effort actual   [--from FILE|-] [--since D] [--session ID] [--group KEY] [--match name|order] [--metric wall|pure]
 effort rules    [--check]
 ```
+
+- `KEY`(묶는 열쇠) = `mark`(기본 — 사람 표시 먼저, 남은 것은 세션 안 30분 간격) · `gap:30m` · `class` · `session` · `none`.
+- **옵션은 명령 바로 뒤**, 작업 id 는 맨 끝에 둔다. 어기면 바른 차례를 알려 주며 오류로 막는다.
 
 - 소단계 꼴은 `[이름:]분류[:크기]` 다. 예 : `조사:M` · `시험:구현:L` · `구현`(크기 M).
 - 분류는 **조사 · 설계 · 구현 · 실측 · 문서 · 검토 · 미분류**, 크기는 **S · M · L · XL** 이다.
@@ -89,8 +106,8 @@ Get-Content 소단계.md | .\bin\effort.exe estimate --from - --human
 ```
 word	조사	조사          설명 끝말·포함 낱말
 agent	설계	Plan          agentType
-size	L	2.4           크기 배율 (S 0.3 · M 1.0 · L 2.4 · XL 5.0)
-seed	조사	10	5	20    분류 p50분 p20분 p80분
+size	L	4.46          크기 배율 (S 0.16 · M 1.0 · L 4.46 · XL 19.41)
+seed	조사	5	1	15    분류 p50분 p20분 p80분 (묶음 단위)
 human	구현	0.25          사람 눈금 × 배율
 min	sample	5             이 아래면 시드만 쓴다
 blend	sample	12            이 위면 실측만 쓴다
@@ -99,6 +116,10 @@ runpre	‹bash-input›          제목이 이걸로 시작하면 도구실행
 runin	loop wakeup           제목에 이게 들어 있으면 도구실행
 chore	커밋                  이 낱말이 있고 쓰기 도구가 없으면 잡무
 shell	max	2             이 수 이하 셸 호출만 도구실행으로 본다
+contfirst	좋아          제목이 이걸로 시작하면 앞 일을 이어가는 말로 본다
+contstop	혹시          제목에 이게 있으면 이어가지 않는다
+cont	max	10            앞 작업 끝에서 이 분 안쪽일 때만 이어간다
+gap	max	30            자동 소단계 묶기의 간격 컷 (분)
 ```
 
 **새 종류가 늘면 `scan` 이 빠진 종류의 기본 줄만 파일 끝에 더한다.** 날짜 주석을 머리에 달고 덧붙이기만 하며,
@@ -112,21 +133,24 @@ shell	max	2             이 수 이하 셸 호출만 도구실행으로 본다
 
 | 순위 | 보는 것 | 결과 |
 | --- | --- | --- |
-| 1 | `origin` 이 `task-notification`·`peer` (서브 완료 알림) | **같은 세션 직전 일 칸 분류를 물려받는다**. 앞이 없으면 미분류 |
-| 2 | 제목이 `runpre` 접두이거나 `runin` 낱말을 담음 | 도구실행 |
-| 3 | 서브에이전트 `description` 끝말 → 포함 낱말 → `agentType` | 토큰을 가장 많이 쓴 서브가 이긴다 |
-| 4 | 작업 제목의 같은 낱말 | 그 분류 |
-| 5 | 잡무 낱말이 있고 쓰기 도구가 없음 | 잡무 |
-| 6 | 웹 도구를 썼고 나머지가 전부 읽기·셸 도구 | 조사 |
-| 7 | 셸만 `shell max` 회 이하, 서브 없음 | 도구실행 |
-| 8 | 도구 호출 0 · 서브 0 | 대화 |
-| 9 | 그 밖 | 미분류 |
+| 1 | 알림인데 본문에 `<tool-use-id>` 가 없음 (Monitor 감시 신호) | 도구실행 |
+| 2 | 알림 본문 `<task-id>` 로 그 세션의 서브에이전트를 **정확히 찾음** | 그 갈래의 분류 (`짝짓기`) |
+| 3 | 알림인데 짝을 못 찾음 | **같은 세션 직전 일 칸 분류를 물려받는다**. 앞이 없으면 미분류 |
+| 4 | 제목이 `runpre` 접두이거나 `runin` 낱말을 담음 | 도구실행 |
+| 5 | 서브에이전트 `description` 끝말 → 포함 낱말 → `agentType` | 토큰을 가장 많이 쓴 서브가 이긴다 |
+| 6 | 작업 제목의 같은 낱말 | 그 분류 |
+| 7 | 잡무 낱말이 있고 쓰기 도구가 없음 | 잡무 |
+| 8 | 웹 도구를 썼고 나머지가 전부 읽기·셸 도구 | 조사 |
+| 9 | 셸만 `shell max` 회 이하 · 서브 없음 / 도구 0 · 서브 0 | 도구실행 / 대화 |
+| 10 | 사람이 직접 친 말이고 `contfirst` 로 시작 · `contstop`·잡무 낱말 없음 · 앞 작업 끝에서 `cont max` 분 안쪽 | 앞 일 칸 분류 (`앞말이어짐`) |
+| 11 | 그 밖 | 미분류 |
 
 - 순위 5~8 의 도구 셈은 **곁도구를 빼고** 센다. 곁도구는 일을 만들지 않는 도구
   (`SendMessage` · `ToolSearch` · `AskUserQuestion` · `Monitor` · `TaskStop` · `ListAgents` · `ScheduleWakeup`)로, 코드에 박혀 있다.
   파일을 건네는 `SendUserFile` 은 산출물 전달이라 일로 친다.
-- 물려받은 값은 **다시 물려주지 않는다.** 세션이 한 분류로 물드는 것을 막는다.
+- 물려받은 값(`이어받기`·`짝짓기`·`앞말이어짐`)은 **다시 물려주지 않는다.** 세션이 한 분류로 물드는 것을 막는다.
 - `list` 는 물려받은 작업을 `문서←` 처럼 화살표로 표시한다.
+- 알림 본문에서는 `<task-id>`·`<tool-use-id>` **값만** 꺼내 쓰고 본문 자체는 저장하지 않는다.
 - 순위와 칸 이름은 코드에 박혀 있다. `rules.txt` 로는 **낱말·도구 이름·접두·상한**만 고친다.
 
 ## 예상 공수를 어떻게 내나
@@ -139,11 +163,12 @@ shell	max	2             이 수 이하 셸 호출만 도구실행으로 본다
 
 ## 알아 둘 것 (실물에서 확인한 것)
 
-- **작업 한 건 = 사용자 프롬프트 한 개**다. 우리가 말하는 「소단계」는 보통 프롬프트 여러 개에 걸친다.
-  그래서 `estimate` 가 내는 값은 지금 **소단계보다 작은 단위**다. 표본이 쌓이면 배율을 다시 잡아야 한다.
+- **작업 한 건 = 사용자 프롬프트 한 개**다. 우리가 말하는 「소단계」는 보통 프롬프트 여러 개에 걸치므로
+  `estimate` 는 **묶음 단위**로 잰다. 경계는 `group --add` 로 사람이 표시하고, 없는 자리만 자동으로 묶는다.
 - `turn_duration` 에는 **사람을 기다린 시간이 섞여 있다**(9시간짜리 턴이 실제로 있다).
-  순수시간이 벽시계의 2배를 넘으면 `순수시간과다` 표시를 달고 `--metric pure` 표본에서 뺀다.
-- `cost-state` 줄은 **세션의 약 10%에만 있다.** 없는 세션은 `cost-state없음` 표시를 달고 검산 칸을 `—` 로 둔다.
+  순수시간이 벽시계를 넘으면 벽시계로 자르고 `순수시간잘림` 표시를 달아 `--metric pure` 표본에서 뺀다.
+  배경 갈래가 도는 동안 닫힌 턴이 있었으면 `배경갈래` 표시가 붙는다.
+- `cost-state` 줄은 **세션의 20%도 안 되는 곳에만 있다** (실물 111개 중 19개). 없는 세션은 `cost-state없음` 표시를 달고 검산 칸을 `—` 로 둔다.
 - `promptId` 는 `user` 줄에만 있다. `assistant` · `turn_duration` 줄은 파일 순서대로 앞선 `promptId` 를 이어받는다.
 - 같은 `(requestId, message.id)` 로 여러 줄이 나오는 것은 스트리밍 스냅숏이다. **마지막 것만** 센다
   (그냥 더하면 2.7배로 부푼다). 단조 증가가 깨진 자리는 `scan` 끝 줄에 건수를 찍는다.

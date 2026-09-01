@@ -6,6 +6,7 @@ import (
 
 	"github.com/mirusona/efforttool/internal/classify"
 	"github.com/mirusona/efforttool/internal/collect"
+	"github.com/mirusona/efforttool/internal/group"
 	"github.com/mirusona/efforttool/internal/model"
 )
 
@@ -27,9 +28,16 @@ type Row struct {
 	HumanMs int64
 }
 
+// 표본 단위 이름.
+const (
+	UnitGroup = "group"
+	UnitTask  = "task"
+)
+
 // Options 는 예상 계산에 붙는 손잡이다.
 type Options struct {
 	Metric   string // wall | pure
+	Unit     string // group | task
 	SinceDay int    // 표본으로 볼 지난 날 수
 	NoX2     bool
 	Freeze   bool
@@ -37,9 +45,51 @@ type Options struct {
 	Now      time.Time
 }
 
-// DefaultOptions 는 기본 손잡이다.
+// DefaultOptions 는 기본 손잡이다. 표본은 묶음(소단계) 단위가 기본이다 — 사람 소단계와 자릿수가 맞는다.
 func DefaultOptions() Options {
-	return Options{Metric: "wall", SinceDay: 120, Now: time.Now()}
+	return Options{Metric: "wall", Unit: UnitGroup, SinceDay: 120, Now: time.Now()}
+}
+
+// Sample 은 예상 표본 한 건이다. 작업 하나일 수도, 묶음 하나일 수도 있다.
+type Sample struct {
+	Class  model.Class
+	WallMs int64
+	PureMs int64
+	Start  time.Time
+	Warn   []string
+}
+
+func (s *Sample) hasWarn(w string) bool {
+	for _, v := range s.Warn {
+		if v == w {
+			return true
+		}
+	}
+	return false
+}
+
+// SamplesFromTasks 는 작업 하나를 표본 하나로 삼는다 (--unit task).
+func SamplesFromTasks(tasks []model.Task) []Sample {
+	out := make([]Sample, 0, len(tasks))
+	for i := range tasks {
+		t := &tasks[i]
+		out = append(out, Sample{
+			Class: t.Class, WallMs: t.WallMs, PureMs: t.PureMs, Start: t.Start, Warn: t.Warn,
+		})
+	}
+	return out
+}
+
+// SamplesFromGroups 는 묶음 하나를 표본 하나로 삼는다 (--unit group).
+func SamplesFromGroups(gs []group.Group) []Sample {
+	out := make([]Sample, 0, len(gs))
+	for i := range gs {
+		g := &gs[i]
+		out = append(out, Sample{
+			Class: g.Class, WallMs: g.WallMs, PureMs: g.PureMs, Start: g.Start, Warn: g.Warn,
+		})
+	}
+	return out
 }
 
 // Estimator 는 캐시 표본과 규칙을 들고 예상을 낸다.
@@ -48,40 +98,40 @@ type Estimator struct {
 	samples map[model.Class][]float64
 }
 
-// New 는 작업 목록에서 분류별 표본을 뽑는다.
-func New(rules *classify.Rules, tasks []model.Task, opt Options) *Estimator {
+// New 는 표본에서 분류별 값을 뽑는다.
+func New(rules *classify.Rules, samples []Sample, opt Options) *Estimator {
 	e := &Estimator{rules: rules, samples: map[model.Class][]float64{}}
 	cut := opt.Now.AddDate(0, 0, -opt.SinceDay)
-	for i := range tasks {
-		t := &tasks[i]
-		if t.HasWarn(collect.WarnInProgress) {
+	for i := range samples {
+		s := &samples[i]
+		if s.hasWarn(collect.WarnInProgress) {
 			continue
 		}
 		// 일 아닌 칸과 미분류는 표본에서 뺀다. 거르는 자리는 여기 하나뿐이다.
-		if !t.Class.IsWork() {
+		if !s.Class.IsWork() {
 			continue
 		}
-		if !t.Start.IsZero() && t.Start.Before(cut) {
+		if !s.Start.IsZero() && s.Start.Before(cut) {
 			continue
 		}
-		// 사람을 기다린 시간이 섞인 turn_duration 은 순수시간 표본에서 뺀다.
-		if opt.Metric == "pure" && t.HasWarn(collect.WarnPureOverWall) {
+		// 벽시계로 잘린 turn_duration 은 진짜 턴 길이가 아니므로 순수시간 표본에서 뺀다.
+		if opt.Metric == "pure" && s.hasWarn(collect.WarnPureClamped) {
 			continue
 		}
-		v := metricOf(t, opt.Metric)
+		v := metricOf(s, opt.Metric)
 		if v <= 0 {
 			continue
 		}
-		e.samples[t.Class] = append(e.samples[t.Class], float64(v))
+		e.samples[s.Class] = append(e.samples[s.Class], float64(v))
 	}
 	return e
 }
 
-func metricOf(t *model.Task, metric string) int64 {
+func metricOf(s *Sample, metric string) int64 {
 	if metric == "pure" {
-		return t.PureMs
+		return s.PureMs
 	}
-	return t.WallMs
+	return s.WallMs
 }
 
 // SampleCount 는 그 분류의 표본 수다.

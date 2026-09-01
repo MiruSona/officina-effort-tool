@@ -18,12 +18,11 @@ const (
 	WarnInProgress = "cost-state없음"
 	WarnNoSubagent = "서브기록없음"
 	WarnNoPureMs   = "순수시간없음"
-	// turn_duration 합이 벽시계보다 두 배 넘게 크다 — 사람을 기다린 시간이 섞였다.
-	WarnPureOverWall = "순수시간과다"
+	// turn_duration 합이 벽시계를 넘어 잘라 냈다 — 배경 갈래 수명이 통째로 붙은 것이다.
+	WarnPureClamped = "순수시간잘림"
+	// 배경 갈래가 도는 동안 닫힌 턴이 있었다.
+	WarnBgAgent = "배경갈래"
 )
-
-// 순수시간이 벽시계의 몇 배를 넘으면 믿지 않는지.
-const pureOverWallLimit = 2
 
 // SessionResult 는 세션 파일 하나를 읽은 결과다.
 type SessionResult struct {
@@ -33,6 +32,8 @@ type SessionResult struct {
 	Bad      int
 	TooLong  int
 	Total    int
+	// 본줄도 아는 곁줄도 아닌 줄 종류 → 건수. 벽시계에서 뺀 것을 사람이 볼 수 있어야 한다.
+	Unknown map[string]int
 }
 
 type taskBuild struct {
@@ -59,11 +60,15 @@ func ReadSession(path string) (SessionResult, error) {
 	cur := preambleID
 	sawCostState := false
 
+	res.Unknown = map[string]int{}
 	rd := jsonl.NewReader(f)
 	var line jsonl.Line
 	for rd.Next(&line) {
 		if line.PromptID != "" {
 			cur = line.PromptID
+		}
+		if unknownLineType(&line) {
+			res.Unknown[line.Type]++
 		}
 		if line.Type == "cost-state" {
 			sawCostState = true
@@ -120,7 +125,8 @@ func ReadSession(path string) (SessionResult, error) {
 
 func applyLine(b *taskBuild, line *jsonl.Line) {
 	t := &b.task
-	if !line.Timestamp.IsZero() {
+	// 곁줄은 작업 구간을 못 늘린다. 늘리면 사람이 다음 말을 하기까지 기다린 시간이 앞 작업에 붙는다.
+	if !line.Timestamp.IsZero() && isMainLine(line) {
 		if t.Start.IsZero() || line.Timestamp.Before(t.Start) {
 			t.Start = line.Timestamp
 		}
@@ -135,20 +141,47 @@ func applyLine(b *taskBuild, line *jsonl.Line) {
 		t.Version = line.Version
 	}
 	if line.Type == "user" && line.PromptID != "" {
-		if t.Title == "" {
-			t.Title = firstLineOf(line.UserText(), 60)
-		}
-		if t.Origin == "" {
-			t.Origin = line.Origin.Kind
-		}
+		applyUserLine(t, line)
 	}
 	if line.Type == "system" && line.Subtype == "turn_duration" {
 		t.PureMs += line.DurationMs
+		if line.PendingBgAgents > 0 {
+			t.AddWarn(WarnBgAgent)
+		}
 	}
 	if line.Type == "assistant" {
 		putAssistant(b.d, line)
 		countTools(t, line)
 	}
+}
+
+// applyUserLine 은 user 줄에서 제목·출처·알림 열쇠를 뽑는다. 알림 본문은 저장하지 않는다.
+func applyUserLine(t *model.Task, line *jsonl.Line) {
+	text := line.UserText()
+	if t.Title == "" {
+		t.Title = firstLineOf(text, 60)
+	}
+	if t.Origin == "" {
+		t.Origin = line.Origin.Kind
+	}
+	if t.PromptSource == "" {
+		t.PromptSource = model.NormalizeSource(line.PromptSource)
+	}
+	if t.NotifyTaskID != "" || !isNotifyText(text) {
+		return
+	}
+	id, toolUse := parseNotifyTags(text)
+	// 꼬리표가 아예 없는 알림은 열쇠도 종류도 못 정한다. 옛 이어받기로 떨어뜨린다.
+	if id == "" {
+		return
+	}
+	t.NotifyTaskID = id
+	// task-id 는 있는데 tool-use-id 가 없으면 서브에이전트 완료가 아니라 Monitor 감시 신호다.
+	if toolUse == "" {
+		t.NotifyKind = model.NotifyMonitor
+		return
+	}
+	t.NotifyKind = model.NotifyAgent
 }
 
 // countTools 는 메인 세션이 부른 도구 이름을 센다. 서브에이전트 파일은 여기로 안 온다.
@@ -175,14 +208,14 @@ func finishTask(b *taskBuild, agents map[string][]model.Agent, noSubagentDir boo
 	for _, a := range t.Agents {
 		t.Usage.Merge(a.Usage)
 	}
-	if !t.End.IsZero() && !t.Start.IsZero() {
-		t.WallMs = t.End.Sub(t.Start).Milliseconds()
-	}
+	applyWallTime(t)
 	if t.PureMs == 0 {
 		t.AddWarn(WarnNoPureMs)
 	}
-	if t.WallMs > 0 && t.PureMs > t.WallMs*pureOverWallLimit {
-		t.AddWarn(WarnPureOverWall)
+	// 순수시간은 벽시계를 못 넘는다. 넘었다면 배경 갈래 수명이 통째로 붙은 것이다.
+	if t.WallMs > 0 && t.PureMs > t.WallMs {
+		t.PureMs = t.WallMs
+		t.AddWarn(WarnPureClamped)
 	}
 	if noSubagentDir {
 		t.AddWarn(WarnNoSubagent)
@@ -190,6 +223,22 @@ func finishTask(b *taskBuild, agents map[string][]model.Agent, noSubagentDir boo
 	if t.Class == "" {
 		t.Class = model.ClassUnknown
 	}
+}
+
+// applyWallTime 은 본줄 구간과 서브에이전트 구간의 합집합을 벽시계로 삼는다.
+// 갈래를 나란히 셋 돌려도 겹친 만큼은 한 번만 세므로 「사람이 시계를 봤을 때 흐른 시간」과 같다.
+func applyWallTime(t *model.Task) {
+	t.MainWallMs = 0
+	if !t.Start.IsZero() && !t.End.IsZero() {
+		t.MainWallMs = t.End.Sub(t.Start).Milliseconds()
+	}
+	agentSpans := make([]Span, 0, len(t.Agents))
+	for _, a := range t.Agents {
+		agentSpans = append(agentSpans, Span{Start: a.Start, End: a.End})
+	}
+	t.AgentWallMs = UnionMs(agentSpans)
+	all := append([]Span{{Start: t.Start, End: t.End}}, agentSpans...)
+	t.WallMs = UnionMs(all)
 }
 
 // applyCostState 는 세션 총계를 덮어쓴다. cost-state 는 그때까지의 누계라 더하면 두 배가 된다.

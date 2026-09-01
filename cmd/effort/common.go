@@ -2,10 +2,13 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/mirusona/efforttool/internal/classify"
+	"github.com/mirusona/efforttool/internal/group"
 	"github.com/mirusona/efforttool/internal/model"
 	"github.com/mirusona/efforttool/internal/store"
 )
@@ -72,10 +75,60 @@ func isNonWork(c model.Class) bool {
 
 // classLabel 은 표에 찍을 분류 이름이다. 물려받은 값이면 화살표를 붙인다.
 func classLabel(t *model.Task) string {
-	if t.ClassBy == classify.ByInherit && t.Class != model.ClassUnknown {
+	inherited := t.ClassBy == classify.ByInherit ||
+		t.ClassBy == classify.ByMatch || t.ClassBy == classify.ByContinue
+	if inherited && t.Class != model.ClassUnknown {
 		return string(t.Class) + "←"
 	}
 	return string(t.Class)
+}
+
+// buildGroups 는 정본(groups.txt)과 묶기 열쇠로 소단계 묶음을 만든다.
+// 정본에 적혔는데 캐시에 없는 작업 수도 같이 돌려준다 — 0건이 왜 0건인지 사람이 알아야 한다.
+func buildGroups(st *store.Store, tasks []model.Task, keyStr string) ([]group.Group, int, error) {
+	rules, err := st.LoadRules()
+	if err != nil {
+		return nil, 0, fail(exitUsage, "%v", err)
+	}
+	key, err := group.ParseKey(keyStr, time.Duration(rules.GapMax)*time.Minute)
+	if err != nil {
+		return nil, 0, fail(exitUsage, "%v", err)
+	}
+	marks, err := st.LoadGroups()
+	if err != nil {
+		return nil, 0, fail(exitUsage, "%v", err)
+	}
+	return group.Build(tasks, marks, key), missingMarkTasks(marks, tasks), nil
+}
+
+// missingMarkTasks 는 정본에 적혔는데 캐시에서 못 찾은 작업 수다.
+func missingMarkTasks(marks []store.Mark, tasks []model.Task) int {
+	n := 0
+	for _, m := range marks {
+		for _, id := range m.Tasks {
+			if !anyTaskHasPrefix(tasks, id) {
+				n++
+			}
+		}
+	}
+	return n
+}
+
+func anyTaskHasPrefix(tasks []model.Task, id string) bool {
+	for i := range tasks {
+		if strings.HasPrefix(tasks[i].PromptID, id) {
+			return true
+		}
+	}
+	return false
+}
+
+// printMissingMarks 는 정본의 작업을 캐시에서 못 찾았을 때 알린다.
+func printMissingMarks(n int) {
+	if n == 0 {
+		return
+	}
+	fmt.Printf("주의 : 정본의 작업 %d건을 캐시에서 못 찾았습니다 (effort scan --all 을 돌려 보세요).\n", n)
 }
 
 func printJSON(v any) error {

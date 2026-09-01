@@ -20,11 +20,11 @@ func rules(t *testing.T) *classify.Rules {
 	return r
 }
 
-// tasksOf 는 같은 분류의 표본 n건을 만든다 (한 건이 wallMin 분).
-func tasksOf(c model.Class, n int, wallMin int64) []model.Task {
-	out := make([]model.Task, 0, n)
+// samplesOf 는 같은 분류의 표본 n건을 만든다 (한 건이 wallMin 분).
+func samplesOf(c model.Class, n int, wallMin int64) []Sample {
+	out := make([]Sample, 0, n)
 	for i := 0; i < n; i++ {
-		out = append(out, model.Task{
+		out = append(out, Sample{
 			Class:  c,
 			Start:  time.Now().Add(-time.Hour),
 			WallMs: wallMin * 60000,
@@ -49,7 +49,7 @@ func TestQuantileInterpolation(t *testing.T) {
 
 func TestEstimateSeedOnlyWhenFewSamples(t *testing.T) {
 	opt := DefaultOptions()
-	e := New(rules(t), tasksOf(model.ClassBuild, 3, 100), opt)
+	e := New(rules(t), samplesOf(model.ClassBuild, 3, 100), opt)
 	r := e.Estimate(Item{Name: "a", Class: model.ClassBuild, Size: "M"}, opt)
 	if r.P50Ms != 20*60000 {
 		t.Fatalf("예상 = %d ms, 바란 값 시드 20분", r.P50Ms)
@@ -61,7 +61,7 @@ func TestEstimateSeedOnlyWhenFewSamples(t *testing.T) {
 
 func TestEstimateBlend(t *testing.T) {
 	opt := DefaultOptions()
-	e := New(rules(t), tasksOf(model.ClassBuild, 8, 100), opt)
+	e := New(rules(t), samplesOf(model.ClassBuild, 8, 100), opt)
 	r := e.Estimate(Item{Class: model.ClassBuild, Size: "M"}, opt)
 	// w = (8-5)/7 → 3/7×100분 + 4/7×20분
 	mixed := 3.0/7.0*100 + 4.0/7.0*20
@@ -76,7 +76,7 @@ func TestEstimateBlend(t *testing.T) {
 
 func TestEstimateMeasuredOnly(t *testing.T) {
 	opt := DefaultOptions()
-	e := New(rules(t), tasksOf(model.ClassBuild, 20, 100), opt)
+	e := New(rules(t), samplesOf(model.ClassBuild, 20, 100), opt)
 	r := e.Estimate(Item{Class: model.ClassBuild, Size: "M"}, opt)
 	if r.P50Ms != 100*60000 {
 		t.Fatalf("예상 = %d ms, 바란 값 100분", r.P50Ms)
@@ -122,30 +122,30 @@ func TestEstimateFreezeMultiplier(t *testing.T) {
 
 func TestEstimateSkipsInProgressTasks(t *testing.T) {
 	opt := DefaultOptions()
-	tasks := tasksOf(model.ClassBuild, 20, 100)
-	for i := range tasks {
-		tasks[i].Warn = []string{collect.WarnInProgress}
+	samples := samplesOf(model.ClassBuild, 20, 100)
+	for i := range samples {
+		samples[i].Warn = []string{collect.WarnInProgress}
 	}
-	e := New(rules(t), tasks, opt)
+	e := New(rules(t), samples, opt)
 	if e.SampleCount(model.ClassBuild) != 0 {
 		t.Fatalf("진행중 작업이 표본에 들어갔다 : %d", e.SampleCount(model.ClassBuild))
 	}
 }
 
-// turn_duration 합이 벽시계보다 훨씬 크면 사람을 기다린 시간이 섞인 것이다.
-func TestEstimateSkipsPureOverWall(t *testing.T) {
+// 벽시계로 잘린 turn_duration 은 진짜 턴 길이가 아니다.
+func TestEstimateSkipsPureClamped(t *testing.T) {
 	opt := DefaultOptions()
 	opt.Metric = "pure"
-	tasks := tasksOf(model.ClassBuild, 20, 100)
-	for i := range tasks {
-		tasks[i].Warn = []string{collect.WarnPureOverWall}
+	samples := samplesOf(model.ClassBuild, 20, 100)
+	for i := range samples {
+		samples[i].Warn = []string{collect.WarnPureClamped}
 	}
-	e := New(rules(t), tasks, opt)
+	e := New(rules(t), samples, opt)
 	if e.SampleCount(model.ClassBuild) != 0 {
 		t.Fatalf("이상한 순수시간이 표본에 들어갔다 : %d", e.SampleCount(model.ClassBuild))
 	}
 	opt.Metric = "wall"
-	e2 := New(rules(t), tasks, opt)
+	e2 := New(rules(t), samples, opt)
 	if e2.SampleCount(model.ClassBuild) != 20 {
 		t.Fatalf("벽시계 표본까지 뺐다 : %d", e2.SampleCount(model.ClassBuild))
 	}

@@ -43,7 +43,8 @@ func ReadAgentFile(path string) (AgentResult, error) {
 		if line.AgentID != "" && res.Agent.AgentID == "" {
 			res.Agent.AgentID = line.AgentID
 		}
-		if !line.Timestamp.IsZero() {
+		// 갈래 파일에도 곁줄이 섞일 수 있다. 구간을 늘리는 줄 종류는 본줄 하나로 묶어 둔다.
+		if !line.Timestamp.IsZero() && isMainLine(&line) {
 			if res.Agent.Start.IsZero() || line.Timestamp.Before(res.Agent.Start) {
 				res.Agent.Start = line.Timestamp
 			}
@@ -107,6 +108,7 @@ func readAgentMeta(jsonlPath string, a *model.Agent) {
 	a.AgentType = m.AgentType
 	a.Description = m.Description
 	a.ToolUseID = m.ToolUseID
+	a.ParentAgentID = m.ParentAgentID
 	a.SpawnDepth = m.SpawnDepth
 	a.Model = model.Normalize(m.Model)
 	if a.AgentType == "" {

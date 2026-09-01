@@ -78,15 +78,15 @@ func TestCostStateNotSummedTwice(t *testing.T) {
 	}
 }
 
-func TestPureOverWallWarned(t *testing.T) {
+func TestPureNotClampedWhenNormal(t *testing.T) {
 	res := readSmall(t)
 	// 첫 작업 : 벽시계 12.5초 · 순수 12초 → 정상
-	if res.Tasks[0].HasWarn(WarnPureOverWall) {
-		t.Fatalf("정상인데 경고가 붙었다 : %v", res.Tasks[0].Warn)
+	if res.Tasks[0].HasWarn(WarnPureClamped) {
+		t.Fatalf("정상인데 표시가 붙었다 : %v", res.Tasks[0].Warn)
 	}
 	// 둘째 작업 : 벽시계 28초 · 순수 8초 → 정상
-	if res.Tasks[1].HasWarn(WarnPureOverWall) {
-		t.Fatalf("정상인데 경고가 붙었다 : %v", res.Tasks[1].Warn)
+	if res.Tasks[1].HasWarn(WarnPureClamped) {
+		t.Fatalf("정상인데 표시가 붙었다 : %v", res.Tasks[1].Warn)
 	}
 }
 

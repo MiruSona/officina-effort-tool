@@ -8,7 +8,8 @@ import (
 
 // SchemaVersion 은 캐시 모양 판이다. 바뀌면 전체 재스캔한다.
 // 1 → 2 : Task.Tools (도구 이름별 호출 수) 추가.
-const SchemaVersion = "2"
+// 2 → 3 : 벽시계 뜻이 「본줄 ∪ 서브 구간 합집합」으로 바뀜 · promptSource · 알림 task-id · parentAgentId.
+const SchemaVersion = "3"
 
 // FileState 는 파일 하나를 어디까지 읽었는지다.
 type FileState struct {

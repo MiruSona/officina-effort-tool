@@ -58,6 +58,10 @@ func run(args []string) int {
 		err = cmdShow(rest)
 	case "list":
 		err = cmdList(rest)
+	case "group":
+		err = cmdGroup(rest)
+	case "actual":
+		err = cmdActual(rest)
 	case "rules":
 		err = cmdRules(rest)
 	case "version", "--version", "-v":
@@ -128,6 +132,12 @@ func newFlags(name string) *flag.FlagSet {
 func parseFlags(fs *flag.FlagSet, args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return fail(exitUsage, "옵션이 잘못됐습니다 (%s)", fs.Name())
+	}
+	// Go 의 flag 는 첫 위치 인자에서 읽기를 멈춘다. 뒤에 남은 옵션은 조용히 무시되므로 막는다.
+	for _, a := range fs.Args() {
+		if len(a) > 1 && a[0] == '-' {
+			return fail(exitUsage, "옵션은 명령 바로 뒤에 둡니다 : effort %s %s <인자…>", fs.Name(), a)
+		}
 	}
 	return nil
 }

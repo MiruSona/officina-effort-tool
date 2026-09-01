@@ -11,6 +11,7 @@ import (
 	"github.com/mirusona/efforttool/internal/collect"
 	"github.com/mirusona/efforttool/internal/model"
 	"github.com/mirusona/efforttool/internal/paths"
+	"github.com/mirusona/efforttool/internal/secret"
 	"github.com/mirusona/efforttool/internal/store"
 )
 
@@ -26,6 +27,8 @@ type scanTotals struct {
 	bad      int
 	tooLong  int
 	lines    int
+	// 본줄도 아는 곁줄도 아닌 줄 종류 → 건수. 벽시계에서 뺀 것을 사람이 볼 수 있어야 한다.
+	unknown map[string]int
 }
 
 func cmdScan(args []string) error {
@@ -110,7 +113,7 @@ func cmdScan(args []string) error {
 		sessionByID[s.SessionID] = s
 	}
 
-	var tot scanTotals
+	tot := scanTotals{unknown: map[string]int{}}
 	for _, dir := range dirs {
 		files, err := sessionFiles(root, dir)
 		if err != nil {
@@ -234,6 +237,9 @@ func scanOne(path string, state *store.ScanState, rules *classify.Rules, keepTit
 	tot.bad += res.Bad
 	tot.tooLong += res.TooLong
 	tot.lines += res.Total
+	for name, n := range res.Unknown {
+		tot.unknown[name] += n
+	}
 	return true, nil
 }
 
@@ -294,12 +300,10 @@ func sessionFiles(root, dir string) ([]string, error) {
 // printClassCounts 는 분류 결과를 한 줄로 찍는다. 규칙을 손봤을 때 어디서 갈렸는지 볼 유일한 자리다.
 func printClassCounts(tasks []model.Task) {
 	byClass := map[model.Class]int{}
-	inherit := 0
+	byRule := map[string]int{}
 	for i := range tasks {
 		byClass[tasks[i].Class]++
-		if tasks[i].ClassBy == classify.ByInherit && tasks[i].Class != model.ClassUnknown {
-			inherit++
-		}
+		byRule[tasks[i].ClassBy]++
 	}
 	var parts []string
 	for _, c := range model.AllClasses {
@@ -308,7 +312,13 @@ func printClassCounts(tasks []model.Task) {
 		}
 		parts = append(parts, fmt.Sprintf("%s %d", c, byClass[c]))
 	}
-	fmt.Printf("분류 : %s · 이어받기 %d\n", strings.Join(parts, " · "), inherit)
+	fmt.Printf("분류 : %s\n", strings.Join(parts, " · "))
+
+	var rules []string
+	for _, by := range []string{classify.ByInherit, classify.ByMatch, classify.ByContinue} {
+		rules = append(rules, fmt.Sprintf("%s %d", by, byRule[by]))
+	}
+	fmt.Printf("물려받음 : %s\n", strings.Join(rules, " · "))
 }
 
 func printScanSummary(t scanTotals, home string) {
@@ -320,4 +330,24 @@ func printScanSummary(t scanTotals, home string) {
 	if t.bad > 0 {
 		fmt.Printf("주의 : 못 읽은 줄 %d개 (그 중 너무 긴 줄 %d개)\n", t.bad, t.tooLong)
 	}
+	printUnknownLines(t.unknown)
+}
+
+// printUnknownLines 는 본줄도 아는 곁줄도 아닌 줄 종류를 알린다.
+// 클로드 코드가 새 줄 종류를 더했을 때 벽시계가 조용히 어긋나는 것을 여기서 잡는다.
+func printUnknownLines(unknown map[string]int) {
+	if len(unknown) == 0 {
+		return
+	}
+	names := make([]string, 0, len(unknown))
+	for name := range unknown {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	parts := make([]string, 0, len(names))
+	for _, name := range names {
+		parts = append(parts, fmt.Sprintf("%s %d개", secret.Sanitize(name), unknown[name]))
+	}
+	fmt.Printf("주의 : 모르는 줄 종류 %d가지 (%s) — 벽시계에서 뺐습니다.\n",
+		len(names), strings.Join(parts, " · "))
 }

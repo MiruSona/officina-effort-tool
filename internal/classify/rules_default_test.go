@@ -46,6 +46,7 @@ func TestMissingKindsFindsEachKind(t *testing.T) {
 		KindTool:  {"tool"},
 		KindRun:   {"runpre", "runin"},
 		KindChore: {"chore"},
+		KindCont:  {"contfirst", "contstop"},
 	}
 	for kind, prefixes := range strip {
 		text := dropLines(DefaultRulesText, prefixes)

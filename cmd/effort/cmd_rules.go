@@ -86,16 +86,16 @@ func printToolRules(r *classify.Rules) {
 		[]string{"도구실행 낱말", joinOr(r.Contains)},
 		[]string{"잡무 낱말", joinOr(r.ChoreWord)},
 		[]string{"셸 상한", fmt.Sprintf("%d회", r.ShellMax)},
+		[]string{"이어짐 글머리", joinOr(r.ContFirst)},
+		[]string{"이어짐 끊는말", joinOr(r.ContStop)},
+		[]string{"이어짐 상한", fmt.Sprintf("%d분", r.ContMax)},
+		[]string{"묶기 간격", fmt.Sprintf("%d분", r.GapMax)},
 	)
 	fmt.Print(render.Table(head, rows, render.Pipe))
 }
 
 func printSizeRules(r *classify.Rules) {
-	names := make([]string, 0, len(r.Sizes))
-	for n := range r.Sizes {
-		names = append(names, n)
-	}
-	sort.Slice(names, func(i, j int) bool { return r.Sizes[names[i]] < r.Sizes[names[j]] })
+	names := r.SizeNames()
 	head := []string{"크기", "배율"}
 	rows := make([][]string, 0, len(names))
 	for _, n := range names {

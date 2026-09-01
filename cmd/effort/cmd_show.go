@@ -60,8 +60,10 @@ func printTask(st *store.Store, t *model.Task) {
 	fmt.Printf("세션 : %s · 프로젝트 : %s\n", t.SessionID, t.Project)
 	fmt.Printf("분류 : %s (%s) · 판 : %s · 시작 : %s\n",
 		t.Class, t.ClassBy, t.Version, t.Start.Format("2006-01-02 15:04:05"))
-	fmt.Printf("벽시계 %s · 순수시간 %s · 턴 %d\n",
-		render.Minutes(t.WallMs), render.Minutes(t.PureMs), t.Turns)
+	fmt.Printf("벽시계 %s (본줄 %s · 서브 %s) · 순수시간 %s · 턴 %d\n",
+		render.Minutes(t.WallMs), render.Minutes(t.MainWallMs), render.Minutes(t.AgentWallMs),
+		render.Minutes(t.PureMs), t.Turns)
+	fmt.Println("벽시계는 본줄 구간과 서브에이전트 구간의 합집합이다 (겹친 만큼은 한 번만 센다).")
 	if len(t.Warn) > 0 {
 		fmt.Printf("표시 : %s\n", strings.Join(t.Warn, ", "))
 	}
@@ -94,11 +96,15 @@ func printModelTable(mu model.ModelUsage) {
 }
 
 func printAgentTable(agents []model.Agent) {
-	head := []string{"에이전트", "종류", "모델", "깊이", "분류", "벽시계", "토큰", "설명"}
+	head := []string{"에이전트", "부모", "종류", "모델", "깊이", "분류", "벽시계", "토큰", "설명"}
 	rows := make([][]string, 0, len(agents))
 	for _, a := range agents {
+		parent := "—"
+		if a.ParentAgentID != "" {
+			parent = shortID(a.ParentAgentID)
+		}
 		rows = append(rows, []string{
-			shortID(a.AgentID), a.AgentType, a.Model,
+			shortID(a.AgentID), parent, a.AgentType, a.Model,
 			fmt.Sprintf("%d", a.SpawnDepth), string(a.Class),
 			render.Minutes(a.End.Sub(a.Start).Milliseconds()),
 			render.Tokens(a.Usage.Sum().Total()), a.Description,

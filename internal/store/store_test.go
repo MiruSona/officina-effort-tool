@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mirusona/efforttool/internal/classify"
 	"github.com/mirusona/efforttool/internal/model"
 )
 
@@ -47,7 +48,7 @@ func TestAppendMissingKindsPreservesUserLines(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(added) != 3 {
+	if len(added) != len(classify.KindOrder) {
 		t.Fatalf("더한 종류 = %v", added)
 	}
 	raw, err := os.ReadFile(s.RulesPath())

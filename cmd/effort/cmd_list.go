@@ -7,6 +7,7 @@ import (
 
 	"github.com/mirusona/efforttool/internal/model"
 	"github.com/mirusona/efforttool/internal/render"
+	"github.com/mirusona/efforttool/internal/store"
 )
 
 func cmdList(args []string) error {
@@ -17,13 +18,14 @@ func cmdList(args []string) error {
 	session := fs.String("session", "", "세션 하나만")
 	limit := fs.Int("limit", 20, "몇 줄까지")
 	sortBy := fs.String("sort", "wall", "wall|pure|tok")
+	keyStr := fs.String("group", "", "묶음으로 본다 : mark|gap:30m|class|session|none")
 	all := fs.Bool("all", false, "일 아닌 칸(대화·도구실행·잡무)까지 보기")
 	wide := fs.Bool("wide", false, "화면 정렬 표")
 	asJSON := fs.Bool("json", false, "JSON 으로")
 	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
-	_, tasks, err := readCache(*home)
+	st, tasks, err := readCache(*home)
 	if err != nil {
 		return err
 	}
@@ -33,6 +35,9 @@ func cmdList(args []string) error {
 	}
 	if len(tasks) == 0 {
 		return fail(exitNoData, "고른 조건에 맞는 작업이 0건입니다.")
+	}
+	if *keyStr != "" {
+		return listAsGroups(st, tasks, *keyStr, *limit, *asJSON, *wide)
 	}
 	if err := sortTasks(tasks, *sortBy); err != nil {
 		return err
@@ -60,6 +65,25 @@ func cmdList(args []string) error {
 		style = render.Wide
 	}
 	fmt.Print(render.Table(head, rows, style))
+	return nil
+}
+
+// listAsGroups 는 작업 대신 소단계 묶음을 한 줄씩 찍는다.
+func listAsGroups(st *store.Store, tasks []model.Task, keyStr string, limit int, asJSON, wide bool) error {
+	groups, missing, err := buildGroups(st, tasks, keyStr)
+	if err != nil {
+		return err
+	}
+	sort.SliceStable(groups, func(i, j int) bool { return groups[i].WallMs > groups[j].WallMs })
+	if limit > 0 && len(groups) > limit {
+		groups = groups[:limit]
+	}
+	if asJSON {
+		return printJSON(groups)
+	}
+	printMissingMarks(missing)
+	fmt.Println(render.DataNotice)
+	fmt.Print(groupTable(groups, wide))
 	return nil
 }
 

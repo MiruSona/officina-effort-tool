@@ -2,6 +2,7 @@ package classify
 
 import (
 	"strings"
+	"time"
 
 	"github.com/mirusona/efforttool/internal/model"
 )
@@ -16,8 +17,15 @@ const (
 	ByInherit   = "이어받기" // 알림이 앞 작업에서 물려받음
 	ByWeb       = "웹조사"
 	ByChore     = "잡무"
+	ByMatch     = "짝짓기"   // 알림 본문 task-id 로 서브에이전트를 정확히 찾음
+	ByContinue  = "앞말이어짐" // 사람 프롬프트가 앞 일을 이어감
 	ByDefault   = "기본"
 )
+
+// 물려받은 값으로 매긴 이름들. 이것으로 매긴 분류는 다음 작업에 다시 물려주지 않는다.
+func isInherited(by string) bool {
+	return by == ByInherit || by == ByMatch || by == ByContinue
+}
 
 // 서브에이전트 완료 알림을 알아보는 값.
 const (
@@ -28,9 +36,11 @@ const (
 // 알림 제목의 두 꼴. 살균이 < 를 ‹ 로 접어서 캐시에는 ‹ 꼴로 남는다.
 var notifyTitles = []string{"‹task-notification›", "<task-notification>"}
 
-// Ctx 는 작업 하나 바깥의 사정이다. 지금은 같은 세션 직전 일 칸 분류 하나뿐이다.
+// Ctx 는 작업 하나 바깥의 사정이다. 같은 세션 안에서만 채운다.
 type Ctx struct {
-	Prev model.Class
+	Prev    model.Class             // 직전 일 칸 분류
+	PrevEnd time.Time               // 바로 앞 작업의 끝 (일 칸이 아니어도 갱신된다)
+	Agents  map[string]*model.Agent // 세션 전체 서브에이전트, 열쇠는 AgentID(= task-id)
 }
 
 // Agent 는 서브에이전트 하나의 분류를 정한다 (순위 1~3).
@@ -53,13 +63,10 @@ func (r *Rules) Task(t *model.Task) (model.Class, string) {
 	return r.TaskWith(t, Ctx{})
 }
 
-// TaskWith 는 작업 하나를 분류한다. 설계 표 2 의 아홉 순위를 그대로 탄다.
+// TaskWith 는 작업 하나를 분류한다. 설계의 열한 순위를 그대로 탄다.
 func (r *Rules) TaskWith(t *model.Task, ctx Ctx) (model.Class, string) {
 	if isNotification(t) {
-		if ctx.Prev == "" {
-			return model.ClassUnknown, ByInherit
-		}
-		return ctx.Prev, ByInherit
+		return r.byNotify(t, ctx)
 	}
 	title := strings.TrimSpace(t.Title)
 	if r.isToolRunTitle(title) {
@@ -74,7 +81,76 @@ func (r *Rules) TaskWith(t *model.Task, ctx Ctx) (model.Class, string) {
 	if c, ok := r.matchContains(title); ok {
 		return c, ByTitle
 	}
-	return r.byTools(t, title)
+	c, by := r.byTools(t, title)
+	if by != ByDefault {
+		return c, by
+	}
+	// 미분류로 떨어질 뻔한 것만 「앞말 이어짐」으로 건진다. 앞 순위는 하나도 안 건드린다.
+	if cc, ok := r.contInherit(t, title, ctx); ok {
+		return cc, ByContinue
+	}
+	return c, by
+}
+
+// byNotify 는 알림 작업을 분류한다 (순위 1~3).
+func (r *Rules) byNotify(t *model.Task, ctx Ctx) (model.Class, string) {
+	// tool-use-id 가 없는 알림은 Monitor 감시 신호다. 일이 아니다.
+	if t.NotifyKind == model.NotifyMonitor {
+		return model.ClassTool, ByOrigin
+	}
+	if a := ctx.Agents[t.NotifyTaskID]; a != nil && t.NotifyTaskID != "" {
+		if c, _ := r.Agent(a); c != "" {
+			return c, ByMatch
+		}
+	}
+	if ctx.Prev == "" {
+		return model.ClassUnknown, ByInherit
+	}
+	return ctx.Prev, ByInherit
+}
+
+// contInherit 는 사람이 앞말을 이어 말한 것인지 본다. 조건을 다 채워야 물려받는다.
+func (r *Rules) contInherit(t *model.Task, title string, ctx Ctx) (model.Class, bool) {
+	if ctx.Prev == "" || !ctx.Prev.IsWork() {
+		return "", false
+	}
+	if t.PromptSource != model.SourceTyped {
+		return "", false
+	}
+	if !r.hasContFirst(title) {
+		return "", false
+	}
+	// 잡무 낱말이 있으면 이어짐을 막기만 한다. 일 칸으로 잘못 새는 것보다 미분류가 낫다.
+	if r.hasContStop(title) || r.isChore(title) {
+		return "", false
+	}
+	if ctx.PrevEnd.IsZero() || t.Start.IsZero() || t.Start.Before(ctx.PrevEnd) {
+		return "", false
+	}
+	if t.Start.Sub(ctx.PrevEnd) > time.Duration(r.ContMax)*time.Minute {
+		return "", false
+	}
+	return ctx.Prev, true
+}
+
+func (r *Rules) hasContFirst(title string) bool {
+	low := strings.ToLower(strings.TrimSpace(title))
+	for _, w := range r.ContFirst {
+		if w != "" && strings.HasPrefix(low, strings.ToLower(w)) {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *Rules) hasContStop(title string) bool {
+	low := strings.ToLower(title)
+	for _, w := range r.ContStop {
+		if w != "" && strings.Contains(low, strings.ToLower(w)) {
+			return true
+		}
+	}
+	return false
 }
 
 // 곁도구는 일을 만들지 않는 도구다. 이것만 쓴 작업이 도구 셈 때문에 대화로 못 떨어지던 것을 막는다.

@@ -23,7 +23,8 @@ func cmdStats(args []string) error {
 	home := fs.String("home", "", "파생 저장소 자리")
 	class := fs.String("class", "", "분류 하나만")
 	since := fs.String("since", "", "이 날부터 (YYYY-MM-DD)")
-	by := fs.String("by", "class", "class|agent|model|session")
+	by := fs.String("by", "class", "class|agent|model|session|group")
+	keyStr := fs.String("group", "", "--by group 일 때 묶기 열쇠 : mark|gap:30m|class|session|none")
 	all := fs.Bool("all", false, "일 아닌 칸(대화·도구실행·잡무)까지 보기")
 	wide := fs.Bool("wide", false, "화면 정렬 표")
 	asJSON := fs.Bool("json", false, "JSON 으로")
@@ -41,7 +42,12 @@ func cmdStats(args []string) error {
 	if len(tasks) == 0 {
 		return fail(exitNoData, "고른 조건에 맞는 작업이 0건입니다.")
 	}
-	buckets, err := groupBy(tasks, *by)
+	var buckets []bucket
+	if *by == "group" {
+		buckets, err = groupBuckets(st, tasks, *keyStr)
+	} else {
+		buckets, err = groupBy(tasks, *by)
+	}
 	if err != nil {
 		return err
 	}
@@ -117,6 +123,27 @@ func printCoverWarn(st *store.Store) {
 	fmt.Println()
 }
 
+// groupBuckets 는 소단계 묶음 하나를 칸 하나로 삼는다.
+func groupBuckets(st *store.Store, tasks []model.Task, keyStr string) ([]bucket, error) {
+	groups, missing, err := buildGroups(st, tasks, keyStr)
+	if err != nil {
+		return nil, err
+	}
+	printMissingMarks(missing)
+	out := make([]bucket, 0, len(groups))
+	for _, g := range groups {
+		out = append(out, bucket{
+			Key: g.ID + " " + g.Name, Count: len(g.Tasks),
+			WallMs: g.WallMs, PureMs: g.PureMs, Tokens: g.Tokens,
+		})
+	}
+	if len(out) == 0 {
+		return nil, fail(exitNoData, "묶을 것이 없습니다.")
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].WallMs > out[j].WallMs })
+	return out, nil
+}
+
 func groupBy(tasks []model.Task, by string) ([]bucket, error) {
 	m := map[string]*bucket{}
 	add := func(key string, wall, pure, tok int64) {
@@ -152,7 +179,7 @@ func groupBy(tasks []model.Task, by string) ([]bucket, error) {
 			}
 		}
 	default:
-		return nil, fail(exitUsage, "--by 는 class|agent|model|session 중 하나입니다 : %s", by)
+		return nil, fail(exitUsage, "--by 는 class|agent|model|session|group 중 하나입니다 : %s", by)
 	}
 	out := make([]bucket, 0, len(m))
 	for _, b := range m {

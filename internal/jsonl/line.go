@@ -54,6 +54,11 @@ type Line struct {
 
 	DurationMs int64 `json:"durationMs"`
 
+	// PromptSource 는 프롬프트가 어디서 왔는지다 (typed·system·queued·sdk·suggestion_accepted).
+	PromptSource string `json:"promptSource"`
+	// PendingBgAgents 는 이 턴이 닫힐 때 아직 도는 배경 갈래 수다.
+	PendingBgAgents int `json:"pendingBackgroundAgentCount"`
+
 	AITitle string `json:"aiTitle"`
 
 	TotalCostUSD      float64               `json:"totalCostUSD"`
@@ -65,11 +70,12 @@ type Line struct {
 
 // Meta 는 서브에이전트의 agent-*.meta.json 이다.
 type Meta struct {
-	AgentType   string `json:"agentType"`
-	Description string `json:"description"`
-	ToolUseID   string `json:"toolUseId"`
-	SpawnDepth  int    `json:"spawnDepth"`
-	Model       string `json:"model"`
+	AgentType     string `json:"agentType"`
+	Description   string `json:"description"`
+	ToolUseID     string `json:"toolUseId"`
+	ParentAgentID string `json:"parentAgentId"`
+	SpawnDepth    int    `json:"spawnDepth"`
+	Model         string `json:"model"`
 }
 
 // 도구 이름이 이보다 길면 우리가 아는 도구가 아니다. 표를 깨지 않게 버린다.
