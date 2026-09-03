@@ -6,9 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mirusona/efforttool/internal/collect"
-	"github.com/mirusona/efforttool/internal/model"
-	"github.com/mirusona/efforttool/internal/store"
+	"github.com/mirusona/officina-effort-tool/internal/collect"
+	"github.com/mirusona/officina-effort-tool/internal/model"
+	"github.com/mirusona/officina-effort-tool/internal/store"
 )
 
 // 묶는 열쇠 이름.

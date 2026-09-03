@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mirusona/efforttool/internal/model"
+	"github.com/mirusona/officina-effort-tool/internal/model"
 )
 
 func newGroupStore(t *testing.T) *Store {

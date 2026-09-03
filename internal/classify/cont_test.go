@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mirusona/efforttool/internal/model"
+	"github.com/mirusona/officina-effort-tool/internal/model"
 )
 
 // contTasks 는 앞 일 칸 하나와 이어질지 볼 작업 하나를 만든다.

@@ -10,9 +10,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mirusona/efforttool/internal/classify"
-	"github.com/mirusona/efforttool/internal/model"
-	"github.com/mirusona/efforttool/internal/secret"
+	"github.com/mirusona/officina-effort-tool/internal/classify"
+	"github.com/mirusona/officina-effort-tool/internal/model"
+	"github.com/mirusona/officina-effort-tool/internal/secret"
 )
 
 // ErrNoCache 는 아직 scan 을 안 돌렸다는 뜻이다.

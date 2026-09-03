@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mirusona/efforttool/internal/model"
+	"github.com/mirusona/officina-effort-tool/internal/model"
 )
 
 func at(min int) time.Time {

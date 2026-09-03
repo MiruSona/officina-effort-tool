@@ -1,6 +1,6 @@
 package collect
 
-import "github.com/mirusona/efforttool/internal/jsonl"
+import "github.com/mirusona/officina-effort-tool/internal/jsonl"
 
 // subtypeAway 는 사람이 자리를 비웠다는 표시다. 앞줄과 3분 이상 떨어져 찍힌다.
 const subtypeAway = "away_summary"

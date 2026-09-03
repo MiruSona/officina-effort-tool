@@ -7,12 +7,12 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/mirusona/efforttool/internal/classify"
-	"github.com/mirusona/efforttool/internal/collect"
-	"github.com/mirusona/efforttool/internal/model"
-	"github.com/mirusona/efforttool/internal/paths"
-	"github.com/mirusona/efforttool/internal/secret"
-	"github.com/mirusona/efforttool/internal/store"
+	"github.com/mirusona/officina-effort-tool/internal/classify"
+	"github.com/mirusona/officina-effort-tool/internal/collect"
+	"github.com/mirusona/officina-effort-tool/internal/model"
+	"github.com/mirusona/officina-effort-tool/internal/paths"
+	"github.com/mirusona/officina-effort-tool/internal/secret"
+	"github.com/mirusona/officina-effort-tool/internal/store"
 )
 
 // 손상 줄이 이 비율을 넘으면 종료 5.

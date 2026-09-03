@@ -1,3 +1,3 @@
-module github.com/mirusona/efforttool
+module github.com/mirusona/officina-effort-tool
 
 go 1.26

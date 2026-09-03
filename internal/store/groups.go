@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/mirusona/efforttool/internal/model"
-	"github.com/mirusona/efforttool/internal/secret"
+	"github.com/mirusona/officina-effort-tool/internal/model"
+	"github.com/mirusona/officina-effort-tool/internal/secret"
 )
 
 // GroupsHead 는 groups.txt 를 처음 만들 때 넣는 머리말이다.

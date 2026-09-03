@@ -4,7 +4,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/mirusona/efforttool/internal/model"
+	"github.com/mirusona/officina-effort-tool/internal/model"
 )
 
 // ClassifySession 은 한 세션의 작업을 시각 차례로 분류한다.

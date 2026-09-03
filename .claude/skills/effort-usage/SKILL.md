@@ -6,7 +6,16 @@ description: Use when estimating effort before starting work, filling the 실제
 # 공수는 EffortTool 로 잰다
 
 **시간 숫자의 정본은 실측이다.** 어림하지 않는다. 옵션의 자세한 꼴은 `effort help <명령>`,
-분류·셈법은 `EffortTool/README.md`.
+분류·셈법은 EffortTool 의 `README.md`.
+
+## 어디서 부르나 — 명령 두 벌
+
+| 어디서 쓰나 | 명령 앞자리 |
+| --- | --- |
+| 스튜디오(Officina) 저장소에서 | `.\EffortTool\bin\effort.exe …` |
+| EffortTool 저장소 단독에서 | `.\bin\effort.exe …` |
+
+아래 표와 예시는 짧은 쪽(`effort …`)으로 적는다. 실제로 칠 때는 위 표의 앞자리를 붙인다.
 
 ## 언제 무엇을
 
@@ -21,9 +30,16 @@ description: Use when estimating effort before starting work, filling the 실제
 | 무슨 일에 시간이 쏠렸나 | `effort stats --by class` |
 
 ```powershell
-.\EffortTool\bin\effort.exe scan --all     # 없으면 : go build -o bin/effort.exe ./cmd/effort (CGO_ENABLED=0)
+# 스튜디오 저장소에서
+.\EffortTool\bin\effort.exe scan --all
 .\EffortTool\bin\effort.exe estimate 조사:M 설계:M 구현:L
+
+# EffortTool 저장소 단독에서
+.\bin\effort.exe scan --all
+.\bin\effort.exe estimate 조사:M 설계:M 구현:L
 ```
+
+실행 파일이 없으면 EffortTool 폴더 안에서 만든다 : `go build -o bin/effort.exe ./cmd/effort` (`CGO_ENABLED=0`).
 
 `estimate` 가 내는 표는 그대로 보고의 공수 표에 붙는다. 옵션은 명령 바로 뒤,
 작업 id 는 맨 끝에 둔다. **어기면 바른 차례를 알려 주며 오류로 막는다.**

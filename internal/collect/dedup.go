@@ -1,6 +1,6 @@
 package collect
 
-import "github.com/mirusona/efforttool/internal/model"
+import "github.com/mirusona/officina-effort-tool/internal/model"
 
 // usageKey 는 같은 API 호출을 알아보는 열쇠다.
 type usageKey struct {

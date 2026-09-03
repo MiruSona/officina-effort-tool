@@ -18,10 +18,20 @@ Claude Code 가 남긴 세션 기록(JSONL)만 읽어 **무슨 일에 시간과 
 ## 빌드
 
 ```powershell
-cd EffortTool
 $env:CGO_ENABLED="0"
 go build -o bin/effort.exe ./cmd/effort
 ```
+
+EffortTool 폴더 안에서 친다. 스튜디오(Officina) 저장소에서라면 `cd EffortTool` 을 먼저 한다.
+
+## 어디서 부르나 — 명령 두 벌
+
+| 어디서 쓰나 | 명령 앞자리 |
+| --- | --- |
+| EffortTool 저장소 단독에서 | `.\bin\effort.exe …` |
+| 스튜디오(Officina) 저장소에서 | `.\EffortTool\bin\effort.exe …` |
+
+아래 예시는 단독 저장소 기준(`.\bin\…`)으로 적는다.
 
 ## 빨리 써 보기
 

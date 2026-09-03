@@ -4,7 +4,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mirusona/efforttool/internal/model"
+	"github.com/mirusona/officina-effort-tool/internal/model"
 )
 
 // 어떤 규칙으로 분류했는지 남기는 이름.

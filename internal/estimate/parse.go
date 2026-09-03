@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/mirusona/efforttool/internal/classify"
-	"github.com/mirusona/efforttool/internal/model"
+	"github.com/mirusona/officina-effort-tool/internal/classify"
+	"github.com/mirusona/officina-effort-tool/internal/model"
 )
 
 // CheckItems 는 규칙을 읽은 뒤 크기 이름을 검사한다.

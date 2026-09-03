@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/mirusona/efforttool/internal/group"
-	"github.com/mirusona/efforttool/internal/model"
-	"github.com/mirusona/efforttool/internal/render"
-	"github.com/mirusona/efforttool/internal/store"
+	"github.com/mirusona/officina-effort-tool/internal/group"
+	"github.com/mirusona/officina-effort-tool/internal/model"
+	"github.com/mirusona/officina-effort-tool/internal/render"
+	"github.com/mirusona/officina-effort-tool/internal/store"
 )
 
 func cmdGroup(args []string) error {

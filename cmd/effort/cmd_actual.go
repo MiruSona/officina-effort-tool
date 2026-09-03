@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/mirusona/efforttool/internal/estimate"
-	"github.com/mirusona/efforttool/internal/group"
-	"github.com/mirusona/efforttool/internal/render"
+	"github.com/mirusona/officina-effort-tool/internal/estimate"
+	"github.com/mirusona/officina-effort-tool/internal/group"
+	"github.com/mirusona/officina-effort-tool/internal/render"
 )
 
 // actualRow 는 예상 한 줄과 거기 붙은 실제 한 줄이다.

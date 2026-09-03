@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/mirusona/efforttool/internal/jsonl"
-	"github.com/mirusona/efforttool/internal/model"
+	"github.com/mirusona/officina-effort-tool/internal/jsonl"
+	"github.com/mirusona/officina-effort-tool/internal/model"
 )
 
 // AgentResult 는 서브에이전트 파일 하나를 읽은 결과다.

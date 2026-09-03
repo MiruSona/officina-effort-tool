@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mirusona/efforttool/internal/model"
-	"github.com/mirusona/efforttool/internal/store"
+	"github.com/mirusona/officina-effort-tool/internal/model"
+	"github.com/mirusona/officina-effort-tool/internal/store"
 )
 
 var base = time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)

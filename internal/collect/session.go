@@ -6,8 +6,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/mirusona/efforttool/internal/jsonl"
-	"github.com/mirusona/efforttool/internal/model"
+	"github.com/mirusona/officina-effort-tool/internal/jsonl"
+	"github.com/mirusona/officina-effort-tool/internal/model"
 )
 
 const preambleID = "__preamble"

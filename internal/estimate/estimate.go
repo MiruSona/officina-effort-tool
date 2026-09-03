@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/mirusona/efforttool/internal/classify"
-	"github.com/mirusona/efforttool/internal/collect"
-	"github.com/mirusona/efforttool/internal/group"
-	"github.com/mirusona/efforttool/internal/model"
+	"github.com/mirusona/officina-effort-tool/internal/classify"
+	"github.com/mirusona/officina-effort-tool/internal/collect"
+	"github.com/mirusona/officina-effort-tool/internal/group"
+	"github.com/mirusona/officina-effort-tool/internal/model"
 )
 
 // Item 은 예상할 소단계 하나다.

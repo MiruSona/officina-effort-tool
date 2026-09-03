@@ -1,1 +1,24 @@
+# EffortTool — Go 표준 라이브러리만 쓰는 툴이라 무시할 것이 적다
+
+# 빌드 결과
 bin/
+*.exe
+*.exe~
+*.test
+
+# Go 도구 부스러기
+*.out
+coverage.txt
+vendor/
+
+# 도구가 남기는 것 (정본은 %USERPROFILE%\.effort\ 에 있고 저장소에는 안 들어온다)
+.effort/
+*.log
+
+# OS·편집기 부스러기
+.DS_Store
+Thumbs.db
+*.swp
+
+# 로컬 전용 문서 (저장소에 올리지 않는다)
+*.local.md

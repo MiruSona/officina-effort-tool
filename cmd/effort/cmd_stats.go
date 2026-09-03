@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/mirusona/efforttool/internal/collect"
-	"github.com/mirusona/efforttool/internal/model"
-	"github.com/mirusona/efforttool/internal/render"
-	"github.com/mirusona/efforttool/internal/store"
+	"github.com/mirusona/officina-effort-tool/internal/collect"
+	"github.com/mirusona/officina-effort-tool/internal/model"
+	"github.com/mirusona/officina-effort-tool/internal/render"
+	"github.com/mirusona/officina-effort-tool/internal/store"
 )
 
 type bucket struct {

@@ -73,8 +73,9 @@ func TestSlugMatchesClaudeFolderName(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("윈도우 경로 꼴 시험")
 	}
-	got := Slug(`C:\Mirusona\Project\ClaudeProject\ProjectOfficina`)
-	want := "C--Mirusona-Project-ClaudeProject-ProjectOfficina"
+	// Claude Code 가 만드는 폴더 이름과 같은 꼴인지만 본다. 실제 저장소 경로를 쓰지 않는다.
+	got := Slug(`D:\Work\Sample_Proj\my.app`)
+	want := "D--Work-Sample-Proj-my-app"
 	if got != want {
 		t.Fatalf("Slug = %q, 바란 값 %q", got, want)
 	}

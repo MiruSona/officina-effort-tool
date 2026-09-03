@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/mirusona/efforttool/internal/classify"
-	"github.com/mirusona/efforttool/internal/collect"
-	"github.com/mirusona/efforttool/internal/model"
-	"github.com/mirusona/efforttool/internal/store"
+	"github.com/mirusona/officina-effort-tool/internal/classify"
+	"github.com/mirusona/officina-effort-tool/internal/collect"
+	"github.com/mirusona/officina-effort-tool/internal/model"
+	"github.com/mirusona/officina-effort-tool/internal/store"
 )
 
 const testdataNotify = "../../testdata/notify"

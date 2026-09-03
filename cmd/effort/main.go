@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/mirusona/efforttool/internal/paths"
-	"github.com/mirusona/efforttool/internal/store"
+	"github.com/mirusona/officina-effort-tool/internal/paths"
+	"github.com/mirusona/officina-effort-tool/internal/store"
 )
 
 // Version 은 이 툴의 판이다.
