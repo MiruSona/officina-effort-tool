@@ -2,6 +2,8 @@ package store
 
 import (
 	"bufio"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -194,4 +196,15 @@ func writeAtomic(path string, data []byte) error {
 		return err
 	}
 	return os.Rename(tmp, path)
+}
+
+// RulesHash 는 rules.txt 전체 바이트의 sha256 지문이다.
+// 파일이 없거나 못 읽으면 빈 값이다 — 그때는 「규칙이 바뀌었다」로 보고 다시 읽는 쪽이 안전하다.
+func (s *Store) RulesHash() string {
+	raw, err := os.ReadFile(s.RulesPath())
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:])
 }

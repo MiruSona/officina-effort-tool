@@ -111,7 +111,8 @@ type Task struct {
 	Title     string    `json:"title"`
 	Start     time.Time `json:"start"`
 	End       time.Time `json:"end"`
-	// WallMs 는 본줄 구간과 서브에이전트 구간의 합집합 길이다. 갈래를 나란히 돌려도 겹친 만큼은 한 번만 센다.
+	// WallMs 는 본줄 구간 길이다(= MainWallMs). 서브에이전트 구간은 안 든다.
+	// AgentWallMs 는 서브 구간의 합집합으로, 총계에 안 넣고 참고값으로만 보여준다.
 	WallMs      int64 `json:"wall_ms"`
 	MainWallMs  int64 `json:"main_wall_ms"`
 	AgentWallMs int64 `json:"agent_wall_ms"`

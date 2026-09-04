@@ -183,6 +183,20 @@ contfirst	그리고
 contfirst	1.
 contfirst	2.
 contfirst	3.
+contfirst	지금
+contfirst	이야
+contfirst	어어
+contfirst	으음
+contfirst	그..
+contfirst	그…
+contfirst	엇
+contfirst	앗
+contfirst	엥
+contfirst	엣
+contfirst	아
+contfirst	어
+contfirst	오
+contfirst	음
 contstop	다른 에이전트
 contstop	다른쪽
 contstop	새 세션
@@ -274,16 +288,19 @@ agent	검토	superpowers:code-reviewer
 
 const defaultTail = `shell	max	2
 
-size	S	0.3
+# 2026-09-04 실측 — 일 칸 묶음 252건의 벽시계(본줄만) 분위수
+# p20 0.7 · p50 1.9 · p80 4.5 · p95 12.4 분. effort rules --measure 로 다시 낼 수 있다.
+size	S	0.35
 size	M	1.0
-size	L	2.4
-size	XL	5.0
+size	L	2.35
+size	XL	6.49
 
-seed	조사	10	5	20
-seed	설계	20	6	50
-seed	구현	20	8	60
-seed	실측	45	20	180
-seed	문서	8	3	20
+# 2026-09-04 실측 (분) — 표본 12건 이상인 분류만 새 값. 검토·미분류는 옛 짐작값 그대로.
+seed	조사	2	1	4
+seed	설계	3	1	4
+seed	구현	2	1	5
+seed	실측	2	1	6
+seed	문서	1	1	4
 seed	검토	10	5	25
 seed	미분류	15	5	40
 

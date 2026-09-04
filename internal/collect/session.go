@@ -225,8 +225,9 @@ func finishTask(b *taskBuild, agents map[string][]model.Agent, noSubagentDir boo
 	}
 }
 
-// applyWallTime 은 본줄 구간과 서브에이전트 구간의 합집합을 벽시계로 삼는다.
-// 갈래를 나란히 셋 돌려도 겹친 만큼은 한 번만 세므로 「사람이 시계를 봤을 때 흐른 시간」과 같다.
+// applyWallTime 은 본줄 구간만 벽시계로 삼는다 (결정 2026-09-04).
+// 서브에이전트 구간은 AgentWallMs 에 따로 담아 참고값으로만 쓴다 — 권한 승인을 안 눌러
+// 갈래가 몇 시간씩 살아 있던 예외가 섞이면 공수 눈금이 그 예외에 끌려가기 때문이다.
 func applyWallTime(t *model.Task) {
 	t.MainWallMs = 0
 	if !t.Start.IsZero() && !t.End.IsZero() {
@@ -237,8 +238,7 @@ func applyWallTime(t *model.Task) {
 		agentSpans = append(agentSpans, Span{Start: a.Start, End: a.End})
 	}
 	t.AgentWallMs = UnionMs(agentSpans)
-	all := append([]Span{{Start: t.Start, End: t.End}}, agentSpans...)
-	t.WallMs = UnionMs(all)
+	t.WallMs = t.MainWallMs
 }
 
 // applyCostState 는 세션 총계를 덮어쓴다. cost-state 는 그때까지의 누계라 더하면 두 배가 된다.

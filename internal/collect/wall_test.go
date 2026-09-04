@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/mirusona/officina-effort-tool/internal/model"
 )
 
 // writeSession 은 시험용 세션 파일 하나를 임시 폴더에 쓰고 읽는다. 실제 자료는 안 건드린다.
@@ -73,6 +75,7 @@ func TestUnknownLineTypeCounted(t *testing.T) {
 	}
 }
 
+// UnionMs 는 이제 서브 구간(AgentWallMs)과 묶음 벽시계를 잴 때만 쓴다. 작업 벽시계는 본줄만이다.
 func TestUnionCountsOverlapOnce(t *testing.T) {
 	base := time.Date(2026, 8, 30, 10, 0, 0, 0, time.UTC)
 	at := func(min int) time.Time { return base.Add(time.Duration(min) * time.Minute) }
@@ -91,15 +94,53 @@ func TestUnionCountsOverlapOnce(t *testing.T) {
 	}
 }
 
-func TestAgentSpanExtendsWall(t *testing.T) {
+// 겹치는 서브 구간 둘은 AgentWallMs 에서 한 번만 센다. 벽시계는 그것과 상관없이 본줄 그대로다.
+func TestAgentWallCountsOverlapOnce(t *testing.T) {
+	base := time.Date(2026, 8, 30, 10, 0, 0, 0, time.UTC)
+	at := func(min int) time.Time { return base.Add(time.Duration(min) * time.Minute) }
+	task := model.Task{
+		Start: at(0), End: at(10),
+		Agents: []model.Agent{
+			{AgentID: "sub1", Start: at(2), End: at(20)},
+			{AgentID: "sub2", Start: at(15), End: at(30)},
+		},
+	}
+	applyWallTime(&task)
+	if task.AgentWallMs != 28*60000 {
+		t.Fatalf("서브 구간 합집합 = %d ms, 바란 값 28분 (2~30 에서 겹친 15~20 은 한 번만)", task.AgentWallMs)
+	}
+	if task.WallMs != 10*60000 {
+		t.Fatalf("벽시계 = %d ms, 바란 값 10분 (본줄만)", task.WallMs)
+	}
+}
+
+// 서브에이전트 구간은 벽시계를 안 늘린다. AgentWallMs 에만 참고값으로 잡힌다.
+func TestAgentSpanDoesNotExtendWall(t *testing.T) {
 	res := readSmall(t)
 	first := res.Tasks[0]
-	// 서브 구간(10:00:06~10:00:10)이 본줄 구간 안에 들어 있어 벽시계는 그대로다.
+	// 서브 구간(10:00:06~10:00:10)이 본줄 구간 안에 있다.
 	if first.MainWallMs != 12500 || first.WallMs != 12500 {
-		t.Fatalf("본줄 %d · 합집합 %d", first.MainWallMs, first.WallMs)
+		t.Fatalf("본줄 %d · 벽시계 %d", first.MainWallMs, first.WallMs)
 	}
 	if first.AgentWallMs != 4000 {
 		t.Fatalf("서브 구간 = %d ms, 바란 값 4000", first.AgentWallMs)
+	}
+
+	// 본줄 밖으로 삐져나간 서브 구간도 벽시계를 못 늘린다.
+	base := time.Date(2026, 8, 30, 10, 0, 0, 0, time.UTC)
+	task := model.Task{
+		Start: base, End: base.Add(10 * time.Minute),
+		Agents: []model.Agent{{AgentID: "sub1", Start: base.Add(5 * time.Minute), End: base.Add(9 * time.Hour)}},
+	}
+	applyWallTime(&task)
+	if task.WallMs != 10*60000 {
+		t.Fatalf("벽시계 = %d ms, 바란 값 10분 (9시간짜리 서브 구간은 안 든다)", task.WallMs)
+	}
+	if task.MainWallMs != 10*60000 {
+		t.Fatalf("본줄 = %d ms, 바란 값 10분", task.MainWallMs)
+	}
+	if task.AgentWallMs != (9*60-5)*60000 {
+		t.Fatalf("서브 구간 = %d ms, 바란 값 535분", task.AgentWallMs)
 	}
 }
 

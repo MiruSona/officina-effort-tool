@@ -2,7 +2,8 @@ package classify
 
 import (
 	"strings"
-	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/mirusona/officina-effort-tool/internal/model"
 )
@@ -38,9 +39,15 @@ var notifyTitles = []string{"‹task-notification›", "<task-notification>"}
 
 // Ctx 는 작업 하나 바깥의 사정이다. 같은 세션 안에서만 채운다.
 type Ctx struct {
-	Prev    model.Class             // 직전 일 칸 분류
-	PrevEnd time.Time               // 바로 앞 작업의 끝 (일 칸이 아니어도 갱신된다)
-	Agents  map[string]*model.Agent // 세션 전체 서브에이전트, 열쇠는 AgentID(= task-id)
+	// PrevWork 는 가장 가까운 앞 일 칸 작업의 분류다. 사이에 대화·도구실행이 껴도 넘어간다.
+	PrevWork model.Class
+	// ChainAlive 는 그 일 칸 작업부터 여기까지 대화 사슬이 안 끊겼는지다.
+	// 작업 사이가 한 번이라도 cont max 를 넘으면 끊긴 것으로 본다.
+	// 바로 앞 작업하고만 재면 대화를 징검다리 삼아 몇 시간 전 일 칸까지 물려받고,
+	// 앞 일 칸에서 바로 재면 촘촘한 대화가 오간 뒤의 「좋아 그러면」을 놓친다.
+	// 사슬로 보면 둘 다 막는다 (2026-09-04 실측 : 앞말이어짐 25 → 36 · 미분류 76 → 65).
+	ChainAlive bool
+	Agents     map[string]*model.Agent // 세션 전체 서브에이전트, 열쇠는 AgentID(= task-id)
 }
 
 // Agent 는 서브에이전트 하나의 분류를 정한다 (순위 1~3).
@@ -103,15 +110,15 @@ func (r *Rules) byNotify(t *model.Task, ctx Ctx) (model.Class, string) {
 			return c, ByMatch
 		}
 	}
-	if ctx.Prev == "" {
+	if ctx.PrevWork == "" {
 		return model.ClassUnknown, ByInherit
 	}
-	return ctx.Prev, ByInherit
+	return ctx.PrevWork, ByInherit
 }
 
 // contInherit 는 사람이 앞말을 이어 말한 것인지 본다. 조건을 다 채워야 물려받는다.
 func (r *Rules) contInherit(t *model.Task, title string, ctx Ctx) (model.Class, bool) {
-	if ctx.Prev == "" || !ctx.Prev.IsWork() {
+	if ctx.PrevWork == "" || !ctx.PrevWork.IsWork() {
 		return "", false
 	}
 	if t.PromptSource != model.SourceTyped {
@@ -124,21 +131,34 @@ func (r *Rules) contInherit(t *model.Task, title string, ctx Ctx) (model.Class, 
 	if r.hasContStop(title) || r.isChore(title) {
 		return "", false
 	}
-	if ctx.PrevEnd.IsZero() || t.Start.IsZero() || t.Start.Before(ctx.PrevEnd) {
+	if !ctx.ChainAlive {
 		return "", false
 	}
-	if t.Start.Sub(ctx.PrevEnd) > time.Duration(r.ContMax)*time.Minute {
-		return "", false
-	}
-	return ctx.Prev, true
+	return ctx.PrevWork, true
 }
 
+// hasContFirst 는 제목이 이어짐 글머리 낱말로 시작하는지다.
+// 한 글자 낱말(「아」「어」)은 뒤에 빈칸이나 부호가 와야 잡는다 —
+// 그냥 앞머리로만 보면 「아직」「어디」까지 물어 이어짐이 너무 넓어진다.
+// rules.txt 는 칸 앞뒤 빈칸을 떼므로 낱말에 빈칸을 붙여 적는 수는 못 쓴다.
 func (r *Rules) hasContFirst(title string) bool {
 	low := strings.ToLower(strings.TrimSpace(title))
 	for _, w := range r.ContFirst {
-		if w != "" && strings.HasPrefix(low, strings.ToLower(w)) {
+		if w == "" {
+			continue
+		}
+		lw := strings.ToLower(w)
+		if !strings.HasPrefix(low, lw) {
+			continue
+		}
+		if utf8.RuneCountInString(lw) > 1 {
 			return true
 		}
+		next, _ := utf8.DecodeRuneInString(low[len(lw):])
+		if unicode.IsLetter(next) || unicode.IsDigit(next) {
+			continue
+		}
+		return true
 	}
 	return false
 }

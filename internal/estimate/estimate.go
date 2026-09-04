@@ -92,6 +92,18 @@ func SamplesFromGroups(gs []group.Group) []Sample {
 	return out
 }
 
+// KeepSample 은 예상 표본으로 쓸 것인지다 — 대표 분류가 일 칸이고 아직 도는 중이 아니어야 한다.
+// 「진행 중」 작업은 끝 시각이 없어 시간이 짧게 잡히므로 배율을 낮춰 버린다.
+// list --group 도 이 잣대를 그대로 쓴다. 잰 표본과 보는 표본이 갈리면 안 된다.
+func KeepSample(c model.Class, warn []string) bool {
+	for _, w := range warn {
+		if w == collect.WarnInProgress {
+			return false
+		}
+	}
+	return c.IsWork()
+}
+
 // Estimator 는 캐시 표본과 규칙을 들고 예상을 낸다.
 type Estimator struct {
 	rules   *classify.Rules
@@ -104,11 +116,8 @@ func New(rules *classify.Rules, samples []Sample, opt Options) *Estimator {
 	cut := opt.Now.AddDate(0, 0, -opt.SinceDay)
 	for i := range samples {
 		s := &samples[i]
-		if s.hasWarn(collect.WarnInProgress) {
-			continue
-		}
-		// 일 아닌 칸과 미분류는 표본에서 뺀다. 거르는 자리는 여기 하나뿐이다.
-		if !s.Class.IsWork() {
+		// 일 아닌 칸·미분류·「진행 중」은 표본에서 뺀다. 잣대는 KeepSample 한 자리뿐이다.
+		if !KeepSample(s.Class, s.Warn) {
 			continue
 		}
 		if !s.Start.IsZero() && s.Start.Before(cut) {

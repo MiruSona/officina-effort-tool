@@ -9,7 +9,8 @@ import (
 // SchemaVersion 은 캐시 모양 판이다. 바뀌면 전체 재스캔한다.
 // 1 → 2 : Task.Tools (도구 이름별 호출 수) 추가.
 // 2 → 3 : 벽시계 뜻이 「본줄 ∪ 서브 구간 합집합」으로 바뀜 · promptSource · 알림 task-id · parentAgentId.
-const SchemaVersion = "3"
+// 3 → 4 : 벽시계를 본줄만으로 되돌림. 서브 구간은 AgentWallMs 에만 남는다.
+const SchemaVersion = "4"
 
 // FileState 는 파일 하나를 어디까지 읽었는지다.
 type FileState struct {
@@ -22,6 +23,10 @@ type FileState struct {
 type ScanState struct {
 	Schema string               `json:"schema"`
 	Files  map[string]FileState `json:"files"`
+	// RulesHash 는 마지막 스캔 때 쓴 rules.txt 의 지문이다.
+	// 분류는 스캔 때 캐시에 박히므로 규칙이 바뀌면 옛 분류를 통째로 다시 매겨야 한다.
+	// 옛 기록에는 이 칸이 없어 빈 값으로 읽힌다 — 그러면 한 번은 전면 재스캔이 돈다.
+	RulesHash string `json:"rules_hash"`
 }
 
 func NewScanState() *ScanState {

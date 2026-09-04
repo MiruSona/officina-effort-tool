@@ -14,19 +14,36 @@ func (r *Rules) ClassifySession(tasks []model.Task) {
 		return tasks[i].Start.Before(tasks[j].Start)
 	})
 	idx := agentIndex(tasks)
-	var prev model.Class
+	var prevWork model.Class
 	var prevEnd time.Time
+	chainAlive := false
+	gap := time.Duration(r.ContMax) * time.Minute
 	for i := range tasks {
-		c, by := r.TaskWith(&tasks[i], Ctx{Prev: prev, PrevEnd: prevEnd, Agents: idx})
+		if chainAlive && !continuous(prevEnd, tasks[i].Start, gap) {
+			chainAlive = false
+		}
+		c, by := r.TaskWith(&tasks[i], Ctx{PrevWork: prevWork, ChainAlive: chainAlive, Agents: idx})
 		tasks[i].Class = c
 		tasks[i].ClassBy = by
-		// 물려받은 값은 다시 물려주지 않는다. 세션이 한 분류로 물드는 것을 막는다.
-		if c.IsWork() && !isInherited(by) {
-			prev = c
+		if c.IsWork() {
+			// 알림도 사슬을 잇는다 — 서브에이전트를 기다린 시간은 대화가 끊긴 것이 아니다.
+			chainAlive = true
+			// 다만 물려받은 값은 다시 물려주지 않는다. 세션이 한 분류로 물드는 것을 막는다.
+			if !isInherited(by) {
+				prevWork = c
+			}
 		}
-		// 시각 창은 바로 앞 작업 기준이다. 일 칸이 아니어도 갱신한다.
 		prevEnd = tasks[i].End
 	}
+}
+
+// continuous 는 앞 작업이 끝난 뒤 gap 안에 다음 작업이 시작했는지다.
+// 시각이 없거나 거꾸로 가면 사슬이 끊긴 것으로 본다 — 없는 값을 이어졌다고 치지 않는다.
+func continuous(prevEnd, start time.Time, gap time.Duration) bool {
+	if prevEnd.IsZero() || start.IsZero() || start.Before(prevEnd) {
+		return false
+	}
+	return start.Sub(prevEnd) <= gap
 }
 
 // agentIndex 는 세션 안 모든 작업의 서브에이전트를 AgentID 로 색인한다.

@@ -110,7 +110,7 @@ func listGroups(home, class, since, session, keyStr string, all, wide, asJSON bo
 
 // groupTable 은 묶음 표 글을 만든다. list --group 도 같은 표를 쓴다.
 func groupTable(groups []group.Group, wide bool) string {
-	head := []string{"묶음", "표시", "분류", "작업", "벽시계", "순수", "토큰", "이름"}
+	head := []string{"묶음", "표시", "분류", "작업", "벽시계", "서브(참고)", "순수", "토큰", "이름"}
 	rows := make([][]string, 0, len(groups))
 	for _, g := range groups {
 		mark := "자동"
@@ -119,7 +119,7 @@ func groupTable(groups []group.Group, wide bool) string {
 		}
 		rows = append(rows, []string{
 			g.ID, mark, string(g.Class), fmt.Sprintf("%d", len(g.Tasks)),
-			render.Minutes(g.WallMs), render.Minutes(g.PureMs),
+			render.Minutes(g.WallMs), render.Minutes(g.AgentWallMs), render.Minutes(g.PureMs),
 			render.Tokens(g.Tokens), g.Name,
 		})
 	}

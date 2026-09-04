@@ -51,8 +51,8 @@ func TestEstimateSeedOnlyWhenFewSamples(t *testing.T) {
 	opt := DefaultOptions()
 	e := New(rules(t), samplesOf(model.ClassBuild, 3, 100), opt)
 	r := e.Estimate(Item{Name: "a", Class: model.ClassBuild, Size: "M"}, opt)
-	if r.P50Ms != 20*60000 {
-		t.Fatalf("예상 = %d ms, 바란 값 시드 20분", r.P50Ms)
+	if r.P50Ms != 2*60000 {
+		t.Fatalf("예상 = %d ms, 바란 값 시드 2분", r.P50Ms)
 	}
 	if !strings.HasPrefix(r.Source, "시드") {
 		t.Fatalf("근거 = %q", r.Source)
@@ -63,8 +63,8 @@ func TestEstimateBlend(t *testing.T) {
 	opt := DefaultOptions()
 	e := New(rules(t), samplesOf(model.ClassBuild, 8, 100), opt)
 	r := e.Estimate(Item{Class: model.ClassBuild, Size: "M"}, opt)
-	// w = (8-5)/7 → 3/7×100분 + 4/7×20분
-	mixed := 3.0/7.0*100 + 4.0/7.0*20
+	// w = (8-5)/7 → 3/7×100분 + 4/7×2분(시드)
+	mixed := 3.0/7.0*100 + 4.0/7.0*2
 	want := int64(mixed * 60000)
 	if diff := r.P50Ms - want; diff > 1000 || diff < -1000 {
 		t.Fatalf("섞은 값 = %d, 바란 값 %d", r.P50Ms, want)
@@ -91,8 +91,8 @@ func TestEstimateSizeMultiplier(t *testing.T) {
 	e := New(rules(t), nil, opt)
 	m := e.Estimate(Item{Class: model.ClassBuild, Size: "M"}, opt)
 	l := e.Estimate(Item{Class: model.ClassBuild, Size: "L"}, opt)
-	if l.P50Ms != int64(float64(m.P50Ms)*2.4) {
-		t.Fatalf("L = %d, M = %d (2.4배가 아니다)", l.P50Ms, m.P50Ms)
+	if l.P50Ms != int64(float64(m.P50Ms)*2.35) {
+		t.Fatalf("L = %d, M = %d (2.35배가 아니다)", l.P50Ms, m.P50Ms)
 	}
 }
 
@@ -100,12 +100,12 @@ func TestEstimateMeasureX2(t *testing.T) {
 	opt := DefaultOptions()
 	e := New(rules(t), nil, opt)
 	r := e.Estimate(Item{Class: model.ClassMeasure, Size: "M"}, opt)
-	if r.P50Ms != 90*60000 {
-		t.Fatalf("실측 예상 = %d ms, 바란 값 45분×2", r.P50Ms)
+	if r.P50Ms != 4*60000 {
+		t.Fatalf("실측 예상 = %d ms, 바란 값 2분×2", r.P50Ms)
 	}
 	opt.NoX2 = true
 	r2 := e.Estimate(Item{Class: model.ClassMeasure, Size: "M"}, opt)
-	if r2.P50Ms != 45*60000 {
+	if r2.P50Ms != 2*60000 {
 		t.Fatalf("--no-x2 예상 = %d ms", r2.P50Ms)
 	}
 }
@@ -115,7 +115,7 @@ func TestEstimateFreezeMultiplier(t *testing.T) {
 	opt.Freeze = true
 	e := New(rules(t), nil, opt)
 	r := e.Estimate(Item{Class: model.ClassBuild, Size: "M"}, opt)
-	if r.P50Ms != int64(20*60000*1.5) {
+	if r.P50Ms != int64(2*60000*1.5) {
 		t.Fatalf("동결 예상 = %d ms", r.P50Ms)
 	}
 }

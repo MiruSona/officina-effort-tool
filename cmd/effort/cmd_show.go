@@ -63,7 +63,7 @@ func printTask(st *store.Store, t *model.Task) {
 	fmt.Printf("벽시계 %s (본줄 %s · 서브 %s) · 순수시간 %s · 턴 %d\n",
 		render.Minutes(t.WallMs), render.Minutes(t.MainWallMs), render.Minutes(t.AgentWallMs),
 		render.Minutes(t.PureMs), t.Turns)
-	fmt.Println("벽시계는 본줄 구간과 서브에이전트 구간의 합집합이다 (겹친 만큼은 한 번만 센다).")
+	fmt.Println("벽시계는 본줄만 센다. 서브는 참고값이다 (겹친 만큼은 한 번만 센다).")
 	if len(t.Warn) > 0 {
 		fmt.Printf("표시 : %s\n", strings.Join(t.Warn, ", "))
 	}

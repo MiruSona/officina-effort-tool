@@ -13,8 +13,12 @@ func cmdRules(args []string) error {
 	fs := newFlags("rules")
 	home := fs.String("home", "", "파생 저장소 자리")
 	check := fs.Bool("check", false, "문법만 본다")
+	measure := fs.Bool("measure", false, "캐시 표본으로 크기 배율·시드를 다시 재서 붙여 넣을 줄만 찍는다 (파일은 안 고친다)")
 	if err := parseFlags(fs, args); err != nil {
 		return err
+	}
+	if *measure {
+		return runRulesMeasure(*home)
 	}
 	st, _, err := openStore(*home, "")
 	if err != nil {

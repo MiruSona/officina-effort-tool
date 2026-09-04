@@ -190,3 +190,88 @@ func TestSizeNamesAndHasSize(t *testing.T) {
 		t.Fatalf("크기 차례 = %v", names)
 	}
 }
+
+// chatBetween 은 「일 → 대화 → 이어짐 말」 세 작업을 만든다.
+// chatAt 은 일이 끝난 뒤 대화가 오는 시각(분), contAt 은 이어짐 말이 오는 시각(분)이다.
+func chatBetween(title string, chatAt, contAt time.Duration) []model.Task {
+	work := model.Task{Start: at(0), End: at(1), Title: "타일 코드 구현", Origin: "human"}
+	chat := model.Task{
+		Start: at(1).Add(chatAt), End: at(1).Add(chatAt).Add(time.Minute),
+		Title: "그거 뭐였더라", Origin: "human", PromptSource: model.SourceTyped,
+	}
+	next := model.Task{
+		Start: at(1).Add(contAt), End: at(1).Add(contAt).Add(time.Minute),
+		Title: title, Origin: "human", PromptSource: model.SourceTyped,
+		Tools: map[string]int{"Read": 3, "Bash": 4},
+	}
+	return []model.Task{work, chat, next}
+}
+
+// 사이에 대화가 끼어도 「가장 가까운 앞 일 칸」을 물려받는다.
+func TestContInheritSkipsChatInBetween(t *testing.T) {
+	r := defaultRules(t)
+	tasks := chatBetween("좋아 그러면 마저 해줘", 2*time.Minute, 4*time.Minute)
+	r.ClassifySession(tasks)
+	if tasks[1].Class != model.ClassChat {
+		t.Fatalf("사이 작업이 대화가 아니다 : %s", tasks[1].Class)
+	}
+	if tasks[2].Class != model.ClassBuild || tasks[2].ClassBy != ByContinue {
+		t.Fatalf("셋째 = %s (%s), 바란 값 구현 (앞말이어짐)", tasks[2].Class, tasks[2].ClassBy)
+	}
+}
+
+// 사슬이 한 번이라도 끊기면(작업 사이가 cont max 초과) 앞 일 칸을 안 물려받는다.
+// 대화를 징검다리 삼아 몇 시간 전 일 칸까지 물려받는 것을 막는 자리다.
+func TestContChainBreaksOnLongGap(t *testing.T) {
+	r := defaultRules(t)
+	// 일 칸 → (11분) → 대화 : 여기서 이미 사슬이 끊긴다.
+	tasks := chatBetween("좋아 그러면 마저 해줘", 11*time.Minute, 12*time.Minute)
+	r.ClassifySession(tasks)
+	if tasks[2].ClassBy == ByContinue {
+		t.Fatalf("사슬이 끊겼는데 이어졌다 : %s (%s)", tasks[2].Class, tasks[2].ClassBy)
+	}
+	// 일 칸 → (2분) → 대화 → (17분) : 마지막 칸에서 끊긴다.
+	late := chatBetween("좋아 그러면 마저 해줘", 2*time.Minute, 20*time.Minute)
+	r.ClassifySession(late)
+	if late[2].ClassBy == ByContinue {
+		t.Fatalf("마지막 칸이 17분인데 이어졌다 : %s (%s)", late[2].Class, late[2].ClassBy)
+	}
+}
+
+// 사이 대화가 촘촘하면 앞 일 칸이 10분 넘게 전이어도 사슬은 살아 있다.
+// 「일 → 짧은 대화 몇 마디 → 좋아 그러면」 이 실제로 가장 흔한 꼴이다.
+func TestContChainSurvivesQuickChat(t *testing.T) {
+	r := defaultRules(t)
+	// 일 칸 끝에서 17분 뒤지만 칸 사이는 9분·7분으로 둘 다 10분 안이다.
+	tasks := chatBetween("좋아 그러면 마저 해줘", 9*time.Minute, 17*time.Minute)
+	r.ClassifySession(tasks)
+	if tasks[2].Class != model.ClassBuild || tasks[2].ClassBy != ByContinue {
+		t.Fatalf("사슬이 살아 있는데 안 이어졌다 : %s (%s)", tasks[2].Class, tasks[2].ClassBy)
+	}
+}
+
+// 한 글자 글머리 낱말은 뒤에 빈칸·부호가 와야 잡는다. 「아직」「어디」까지 물면 너무 넓다.
+func TestContFirstSingleRuneNeedsBoundary(t *testing.T) {
+	r := defaultRules(t)
+	cases := []struct {
+		title string
+		want  bool
+	}{
+		{"아 그러면 그대로 해줘", true},
+		{"아. 그대로 해줘", true},
+		{"어 맞아 그대로", true},
+		{"아직 안 끝났어 기다려", false},
+		{"어디까지 했는지 봐줘", false},
+		{"음.. 그대로 가자", true},
+		{"음악 파일을 넣어줘", false},
+	}
+	for _, c := range cases {
+		tasks := contTasks(c.title, model.SourceTyped, 2*time.Minute)
+		r.ClassifySession(tasks)
+		got := tasks[1].ClassBy == ByContinue
+		if got != c.want {
+			t.Fatalf("%q : 이어짐 = %v, 바란 값 %v (%s / %s)",
+				c.title, got, c.want, tasks[1].Class, tasks[1].ClassBy)
+		}
+	}
+}

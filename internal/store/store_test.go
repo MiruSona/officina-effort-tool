@@ -283,3 +283,51 @@ func TestScanStateUnchanged(t *testing.T) {
 		t.Fatal("줄어든 파일은 전체 재읽기다")
 	}
 }
+
+// rules.txt 지문은 파일 전체 바이트로 잰다. 없으면 빈 값, 한 글자만 바뀌어도 달라야 한다.
+func TestRulesHashChangesWithFile(t *testing.T) {
+	s := New(t.TempDir())
+	if h := s.RulesHash(); h != "" {
+		t.Fatalf("파일이 없는데 지문이 있다 : %q", h)
+	}
+	if _, err := s.EnsureRules(); err != nil {
+		t.Fatal(err)
+	}
+	first := s.RulesHash()
+	if len(first) != 64 {
+		t.Fatalf("sha256 hex 가 아니다 : %q", first)
+	}
+	if again := s.RulesHash(); again != first {
+		t.Fatal("같은 파일인데 지문이 달라졌다")
+	}
+	raw, err := os.ReadFile(s.RulesPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(s.RulesPath(), append(raw, []byte("contfirst\t어어\n")...), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if s.RulesHash() == first {
+		t.Fatal("파일을 고쳤는데 지문이 그대로다")
+	}
+}
+
+// 옛 scanstate.json 에는 rules_hash 칸이 없다. 빈 값으로 읽혀 첫 실행에 한 번 전면 재스캔이 돌아야 한다.
+func TestScanStateKeepsRulesHash(t *testing.T) {
+	s := New(t.TempDir())
+	if err := s.EnsureDirs(); err != nil {
+		t.Fatal(err)
+	}
+	st := NewScanState()
+	if st.RulesHash != "" {
+		t.Fatalf("새 기록에 지문이 있다 : %q", st.RulesHash)
+	}
+	st.RulesHash = "abc123"
+	if err := s.SaveScanState(st); err != nil {
+		t.Fatal(err)
+	}
+	got := s.LoadScanState()
+	if got.RulesHash != "abc123" {
+		t.Fatalf("지문 = %q, 바란 값 abc123", got.RulesHash)
+	}
+}

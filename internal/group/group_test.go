@@ -140,26 +140,48 @@ func TestGroupWallIsUnion(t *testing.T) {
 	}
 }
 
-// 묶음 벽시계는 서브에이전트 구간도 같이 합집합한다.
-func TestGroupWallIncludesAgentSpans(t *testing.T) {
+// 묶음 벽시계는 본줄 구간만 합집합한다. 서브에이전트 구간은 AgentWallMs 에 따로 잡힌다.
+func TestGroupWallExcludesAgentSpans(t *testing.T) {
 	main := task("aaaa1111", "s1", 0, 10, model.ClassBuild)
 	main.Agents = []model.Agent{{AgentID: "sub1", Start: at(10), End: at(30)}}
+	main.AgentWallMs = 20 * 60000
 	gs := Build([]model.Task{main}, nil, Key{Mode: ModeGap, Gap: 30 * time.Minute})
 	if len(gs) != 1 {
 		t.Fatalf("묶음 수 = %d", len(gs))
 	}
-	if gs[0].WallMs != 30*60000 {
-		t.Fatalf("묶음 벽시계 = %d ms, 바란 값 30분 (본줄 10분 + 갈래 20분)", gs[0].WallMs)
+	if gs[0].WallMs != 10*60000 {
+		t.Fatalf("묶음 벽시계 = %d ms, 바란 값 10분 (본줄만)", gs[0].WallMs)
+	}
+	if gs[0].AgentWallMs != 20*60000 {
+		t.Fatalf("묶음 서브 구간 = %d ms, 바란 값 20분", gs[0].AgentWallMs)
 	}
 }
 
-// 시작·끝이 빈 갈래 구간은 벽시계에 안 든다.
-func TestGroupWallSkipsEmptyAgentSpans(t *testing.T) {
+// 묶음 서브 구간도 겹친 만큼은 한 번만 센다. 작업 둘의 갈래가 겹칠 수 있다.
+func TestGroupAgentWallCountsOverlapOnce(t *testing.T) {
+	a := task("aaaa1111", "s1", 0, 5, model.ClassBuild)
+	a.Agents = []model.Agent{{AgentID: "sub1", Start: at(1), End: at(20)}}
+	b := task("bbbb2222", "s1", 6, 5, model.ClassBuild)
+	b.Agents = []model.Agent{{AgentID: "sub2", Start: at(15), End: at(25)}}
+	gs := Build([]model.Task{a, b}, nil, Key{Mode: ModeGap, Gap: 30 * time.Minute})
+	if gs[0].AgentWallMs != 24*60000 {
+		t.Fatalf("묶음 서브 구간 = %d ms, 바란 값 24분 (1~25 에서 겹친 15~20 은 한 번만)", gs[0].AgentWallMs)
+	}
+	if gs[0].WallMs != 10*60000 {
+		t.Fatalf("묶음 벽시계 = %d ms, 바란 값 10분", gs[0].WallMs)
+	}
+}
+
+// 시작·끝이 빈 갈래 구간은 서브 구간에 안 든다.
+func TestGroupAgentWallSkipsEmptySpans(t *testing.T) {
 	main := task("aaaa1111", "s1", 0, 10, model.ClassBuild)
 	main.Agents = []model.Agent{{AgentID: "sub1"}, {AgentID: "sub2", Start: at(20)}}
 	gs := Build([]model.Task{main}, nil, Key{Mode: ModeSession})
 	if gs[0].WallMs != 10*60000 {
 		t.Fatalf("묶음 벽시계 = %d ms, 바란 값 10분", gs[0].WallMs)
+	}
+	if gs[0].AgentWallMs != 0 {
+		t.Fatalf("묶음 서브 구간 = %d ms, 바란 값 0", gs[0].AgentWallMs)
 	}
 }
 

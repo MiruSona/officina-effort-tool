@@ -60,11 +60,13 @@ type Group struct {
 	Tasks    []string    `json:"tasks"`
 	Start    time.Time   `json:"start"`
 	End      time.Time   `json:"end"`
-	// WallMs 는 안에 든 작업 구간의 합집합이다. 작업 사이의 사람 대기는 안 든다.
-	WallMs int64    `json:"wall_ms"`
-	PureMs int64    `json:"pure_ms"`
-	Tokens int64    `json:"tokens"`
-	Warn   []string `json:"warn"`
+	// WallMs 는 안에 든 작업 본줄 구간의 합집합이다. 작업 사이의 사람 대기는 안 든다.
+	WallMs int64 `json:"wall_ms"`
+	// AgentWallMs 는 안에 든 서브에이전트 구간의 합집합이다. 총계에 안 넣는 참고값이다.
+	AgentWallMs int64    `json:"agent_wall_ms"`
+	PureMs      int64    `json:"pure_ms"`
+	Tokens      int64    `json:"tokens"`
+	Warn        []string `json:"warn"`
 }
 
 // Build 는 작업을 묶는다. 정본이 먼저 이기고, 남은 작업만 열쇠로 묶는다.
@@ -173,6 +175,7 @@ func sameGroup(prev, cur model.Task, key Key) bool {
 // fill 은 묶음의 시간·토큰·분류를 안에 든 작업에서 채운다.
 func fill(g *Group, members []model.Task) {
 	spans := make([]collect.Span, 0, len(members))
+	agentSpans := make([]collect.Span, 0, len(members))
 	seenSession := map[string]bool{}
 	seenWarn := map[string]bool{}
 	byClass := map[model.Class]int64{}
@@ -190,12 +193,12 @@ func fill(g *Group, members []model.Task) {
 			g.Warn = append(g.Warn, w)
 		}
 		spans = append(spans, collect.Span{Start: t.Start, End: t.End})
-		// 작업 벽시계와 같은 뜻이 되게 서브에이전트 구간도 같이 합집합한다.
+		// 서브에이전트 구간은 벽시계에 안 넣고 참고값으로만 따로 합집합한다.
 		for _, a := range t.Agents {
 			if a.Start.IsZero() || a.End.IsZero() {
 				continue
 			}
-			spans = append(spans, collect.Span{Start: a.Start, End: a.End})
+			agentSpans = append(agentSpans, collect.Span{Start: a.Start, End: a.End})
 		}
 		if g.Start.IsZero() || (!t.Start.IsZero() && t.Start.Before(g.Start)) {
 			g.Start = t.Start
@@ -210,6 +213,7 @@ func fill(g *Group, members []model.Task) {
 		}
 	}
 	g.WallMs = collect.UnionMs(spans)
+	g.AgentWallMs = collect.UnionMs(agentSpans)
 	if g.Class == "" {
 		g.Class = topClass(byClass)
 	}

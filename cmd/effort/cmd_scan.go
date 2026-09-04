@@ -96,15 +96,21 @@ func cmdScan(args []string) error {
 	defer lock.Release()
 
 	state := st.LoadScanState()
+	// 지문은 기본값 덧붙이기 「뒤」에 잰다. 앞에서 재면 더한 줄 때문에 매번 규칙이 바뀐 것으로 보인다.
+	rulesHash := st.RulesHash()
+	rulesChanged := state.RulesHash != rulesHash
 	// 판이 다르면 옛 작업에 새 칸이 없다. 섞이면 분류가 조용히 틀리므로 rebuild 와 똑같이 다룬다.
-	// 규칙을 더했을 때도 캐시에 남은 옛 분류를 새 규칙으로 다시 매긴다.
-	full := *rebuild || state.Stale() || len(addedKinds) > 0
+	// 규칙을 더했거나 사람이 rules.txt 를 고쳤을 때도 캐시에 남은 옛 분류를 새 규칙으로 다시 매긴다.
+	full := *rebuild || state.Stale() || len(addedKinds) > 0 || rulesChanged
 	if state.Stale() {
 		fmt.Printf("캐시 판이 %s → %s 로 바뀌어 전부 다시 읽습니다.\n", oldSchemaName(state.Schema), store.SchemaVersion)
+	} else if rulesChanged && !*rebuild && len(state.Files) > 0 {
+		fmt.Println("규칙 파일이 바뀌어 전부 다시 읽습니다.")
 	}
 	if full {
 		state = store.NewScanState()
 	}
+	state.RulesHash = rulesHash
 	oldTasks, oldSessions := loadOld(st, full)
 
 	tasksBySession := groupTasks(oldTasks)
