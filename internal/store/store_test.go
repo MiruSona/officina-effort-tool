@@ -331,3 +331,21 @@ func TestScanStateKeepsRulesHash(t *testing.T) {
 		t.Fatalf("지문 = %q, 바란 값 abc123", got.RulesHash)
 	}
 }
+
+// 죽은 락은 옮겨서 가로챈다 — 한 쪽만 성공해야 두 스캔이 같이 들어가지 않는다.
+func TestStealOnlyOnce(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "scan.lock")
+	if err := os.WriteFile(path, []byte("999999 1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := steal(path); err != nil {
+		t.Fatalf("첫 가로채기가 실패했다 : %v", err)
+	}
+	if err := steal(path); err == nil {
+		t.Fatal("같은 락을 두 번 가로챘다")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatal("가로챈 락이 안 지워졌다")
+	}
+}

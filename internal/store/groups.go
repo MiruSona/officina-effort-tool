@@ -147,6 +147,11 @@ func (s *Store) AppendGroup(m Mark) error {
 			return fmt.Errorf("작업 id 꼴이 아닙니다 : %q (%s)", id, idRule())
 		}
 	}
+	// 이름이 공백뿐이면 줄이 2칸으로 써져 이후 모든 명령이 실패한다. (탭·줄바꿈은 Sanitize 가 공백으로 바꾼다)
+	name := secret.Sanitize(m.Name)
+	if name == "" {
+		return fmt.Errorf("묶음 이름이 비었습니다 : 한 글자 이상 적어 주세요")
+	}
 	if _, err := s.EnsureGroups(); err != nil {
 		return err
 	}
@@ -154,7 +159,7 @@ func (s *Store) AppendGroup(m Mark) error {
 	if err != nil {
 		return err
 	}
-	body := "group\t" + m.ID + "\t" + secret.Sanitize(m.Name)
+	body := "group\t" + m.ID + "\t" + name
 	if m.Class != "" {
 		body += "\t" + string(m.Class)
 	}

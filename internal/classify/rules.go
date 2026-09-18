@@ -335,6 +335,11 @@ func ParseRules(r io.Reader) (*Rules, error) {
 	if err := sc.Err(); err != nil {
 		return nil, err
 	}
+	// 섞기 구간이 뒤집혀 있으면 실측을 쓸 구간이 사라진다. 두 줄이 다 있을 때만 본다.
+	if out.MinSample > 0 && out.BlendMax > 0 && out.BlendMax <= out.MinSample {
+		return nil, fmt.Errorf("rules.txt : blend sample(%d) 은 min sample(%d) 보다 커야 합니다",
+			out.BlendMax, out.MinSample)
+	}
 	for w := range out.Words {
 		out.WordOrder = append(out.WordOrder, w)
 	}
@@ -396,6 +401,10 @@ func applyRuleLine(out *Rules, f []string, n int) error {
 		if err != nil {
 			return fmt.Errorf("rules.txt %d번째 줄: 배율이 숫자가 아닙니다 (%s)", n, f[2])
 		}
+		// 0 이나 음수를 두면 추정값이 통째로 0 이 되어 조용히 틀린다.
+		if v <= 0 {
+			return fmt.Errorf("rules.txt %d번째 줄: 배율은 0보다 커야 합니다 (%s)", n, f[2])
+		}
 		out.Sizes[strings.ToUpper(f[1])] = v
 		return nil
 	case "seed":
@@ -411,9 +420,21 @@ func applyRuleLine(out *Rules, f []string, n int) error {
 		out.Human[model.Class(f[1])] = v
 		return nil
 	case "min":
-		return setNamedInt(&out.MinSample, f, "sample", n)
+		if err := setNamedInt(&out.MinSample, f, "sample", n); err != nil {
+			return err
+		}
+		if out.MinSample < 1 {
+			return fmt.Errorf("rules.txt %d번째 줄: min sample 은 1 이상이어야 합니다 (%s)", n, f[2])
+		}
+		return nil
 	case "blend":
-		return setNamedInt(&out.BlendMax, f, "sample", n)
+		if err := setNamedInt(&out.BlendMax, f, "sample", n); err != nil {
+			return err
+		}
+		if out.BlendMax < 1 {
+			return fmt.Errorf("rules.txt %d번째 줄: blend sample 은 1 이상이어야 합니다 (%s)", n, f[2])
+		}
+		return nil
 	}
 	return fmt.Errorf("rules.txt %d번째 줄: 모르는 종류 %q", n, f[0])
 }
@@ -448,6 +469,9 @@ func addSeed(out *Rules, f []string, n int) error {
 		v, err := strconv.ParseFloat(f[2+i], 64)
 		if err != nil {
 			return fmt.Errorf("rules.txt %d번째 줄: 분 값이 숫자가 아닙니다 (%s)", n, f[2+i])
+		}
+		if v < 0 {
+			return fmt.Errorf("rules.txt %d번째 줄: 분 값은 0 이상이어야 합니다 (%s)", n, f[2+i])
 		}
 		vals[i] = v
 	}

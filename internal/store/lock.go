@@ -40,11 +40,21 @@ func AcquireLock(dir string) (*Lock, error) {
 		if !isStale(path) {
 			break
 		}
-		if err := os.Remove(path); err != nil {
-			return nil, err
+		if err := steal(path); err != nil {
+			break
 		}
 	}
 	return nil, fmt.Errorf("다른 effort scan 이 돌고 있습니다 (%s)", path)
+}
+
+// steal 은 죽은 락을 가로챈다. 고유 이름으로 옮겨 본 쪽만 지운다.
+// 그냥 지우면 두 스캔이 같은 락을 함께 죽은 것으로 보고 둘 다 들어간다.
+func steal(path string) error {
+	tmp := fmt.Sprintf("%s.dead.%d.%d", path, os.Getpid(), time.Now().UnixNano())
+	if err := os.Rename(path, tmp); err != nil {
+		return err
+	}
+	return os.Remove(tmp)
 }
 
 // isStale 은 락이 죽은 것인지 본다. 만든 지 2초 안인 빈 락은 산 것으로 본다.

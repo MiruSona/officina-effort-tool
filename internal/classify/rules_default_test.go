@@ -76,3 +76,26 @@ func dropLines(text string, prefixes []string) string {
 	}
 	return strings.Join(keep, "\n")
 }
+
+// 배율 0·표본 0·뒤집힌 섞기 구간은 추정값을 조용히 0 으로 만든다 — 읽을 때 막는다.
+func TestParseRulesRejectsBadNumbers(t *testing.T) {
+	cases := map[string]string{
+		"배율 0":     "size\tM\t0\n",
+		"배율 음수":    "size\tM\t-1\n",
+		"표본 0":     "min\tsample\t0\n",
+		"표본 음수":    "min\tsample\t-3\n",
+		"섞기 0":     "blend\tsample\t0\n",
+		"섞기가 더 작다": "min\tsample\t5\nblend\tsample\t3\n",
+		"섞기가 같다":   "min\tsample\t5\nblend\tsample\t5\n",
+		"시드 음수":    "seed\t조사\t-1\t1\t4\n",
+	}
+	for name, text := range cases {
+		if _, err := ParseRules(strings.NewReader(text)); err == nil {
+			t.Errorf("%s : 안 막았다", name)
+		}
+	}
+	// 멀쩡한 값은 그대로 지나가야 한다.
+	if _, err := ParseRules(strings.NewReader("min\tsample\t5\nblend\tsample\t12\nsize\tM\t1\n")); err != nil {
+		t.Fatalf("멀쩡한 규칙을 막았다 : %v", err)
+	}
+}

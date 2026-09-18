@@ -40,12 +40,27 @@ func ProjectsRoot(flagProjects string) (string, error) {
 }
 
 // Slug 는 프로젝트 폴더 경로를 Claude Code 가 쓰는 폴더 이름으로 바꾼다.
+// 클로드 코드는 영숫자가 아닌 글자를 모두 `-` 로 바꾼다 — 공백·한글도 마찬가지다.
 func Slug(dir string) string {
 	s := filepath.Clean(dir)
-	s = strings.ReplaceAll(s, "\\", "-")
-	s = strings.ReplaceAll(s, "/", "-")
-	s = strings.ReplaceAll(s, ":", "-")
-	s = strings.ReplaceAll(s, "_", "-")
-	s = strings.ReplaceAll(s, ".", "-")
-	return s
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if isAlnum(r) {
+			b.WriteRune(r)
+			continue
+		}
+		b.WriteByte('-')
+	}
+	return b.String()
+}
+
+func isAlnum(r rune) bool {
+	if r >= 'a' && r <= 'z' {
+		return true
+	}
+	if r >= 'A' && r <= 'Z' {
+		return true
+	}
+	return r >= '0' && r <= '9'
 }

@@ -125,3 +125,15 @@ func TestGroupsMissingFileIsEmpty(t *testing.T) {
 		t.Fatalf("없는 파일에서 %v · %v", marks, err)
 	}
 }
+
+// 이름이 공백뿐이면 줄이 2칸으로 써져 이후 모든 명령이 깨진다 — 쓰기 때 막는다.
+func TestAppendGroupRejectsBlankName(t *testing.T) {
+	s := newGroupStore(t)
+	err := s.AppendGroup(Mark{ID: "g20260918-01", Name: "   ", Tasks: []string{"abcd1234"}})
+	if err == nil {
+		t.Fatal("공백뿐인 이름을 안 막았다")
+	}
+	if _, err := s.LoadGroups(); err != nil {
+		t.Fatalf("정본이 깨졌다 : %v", err)
+	}
+}

@@ -111,7 +111,15 @@ func cmdScan(args []string) error {
 		state = store.NewScanState()
 	}
 	state.RulesHash = rulesHash
-	oldTasks, oldSessions := loadOld(st, full)
+	// 전부 다시 읽어야 해도 한 프로젝트만 훑는 판이면 옛 캐시를 버리지 않는다.
+	// 버리면 이번에 안 훑는 프로젝트의 기록이 되살릴 길 없이 사라진다.
+	oldTasks, oldSessions, err := loadOld(st, full && *all)
+	if err != nil {
+		return err
+	}
+	if full && !*all {
+		printKeptProjects(otherProjectSessions(oldSessions, dirs))
+	}
 
 	tasksBySession := groupTasks(oldTasks)
 	sessionByID := map[string]model.Session{}
@@ -174,19 +182,47 @@ func oldSchemaName(s string) string {
 	return s
 }
 
-func loadOld(st *store.Store, rebuild bool) ([]model.Task, []model.Session) {
+// loadOld 는 옛 캐시를 읽는다. 읽기 오류를 삼키면 멀쩡한 기록을 통째로 버리게 되므로 멈춘다.
+func loadOld(st *store.Store, rebuild bool) ([]model.Task, []model.Session, error) {
 	if rebuild {
-		return nil, nil
+		return nil, nil, nil
 	}
 	tasks, err := st.ReadTasks()
-	if err != nil {
-		tasks = nil
+	if err != nil && err != store.ErrNoCache {
+		return nil, nil, fail(exitRead,
+			"옛 작업 캐시를 못 읽었습니다 : %v (`effort scan --rebuild --all` 로 다시 만드세요)", err)
 	}
 	sessions, err := st.ReadSessions()
-	if err != nil {
-		sessions = nil
+	if err != nil && err != store.ErrNoCache {
+		return nil, nil, fail(exitRead,
+			"옛 세션 캐시를 못 읽었습니다 : %v (`effort scan --rebuild --all` 로 다시 만드세요)", err)
 	}
-	return tasks, sessions
+	return tasks, sessions, nil
+}
+
+// otherProjectSessions 는 이번에 안 훑는 프로젝트의 옛 세션 수다.
+// 어느 프로젝트인지 모르는 세션(빈 값)은 안 훑는 쪽으로 세어, 알림을 빠뜨리지 않는다.
+func otherProjectSessions(sessions []model.Session, dirs []string) int {
+	scanned := map[string]bool{}
+	for _, d := range dirs {
+		scanned[strings.ToLower(d)] = true
+	}
+	n := 0
+	for i := range sessions {
+		if sessions[i].Project != "" && scanned[strings.ToLower(paths.Slug(sessions[i].Project))] {
+			continue
+		}
+		n++
+	}
+	return n
+}
+
+// printKeptProjects 는 안 훑는 프로젝트의 기록이 옛 분류 그대로 남는다고 알린다.
+func printKeptProjects(n int) {
+	if n == 0 {
+		return
+	}
+	fmt.Printf("주의 : 이번에 안 훑는 프로젝트의 세션 %d개는 옛 분류 그대로 둡니다 (effort scan --all 로 전부 다시 매기세요).\n", n)
 }
 
 func groupTasks(tasks []model.Task) map[string][]model.Task {

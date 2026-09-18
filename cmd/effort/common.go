@@ -37,7 +37,8 @@ func readCache(home string) (*store.Store, []model.Task, error) {
 func filterTasks(tasks []model.Task, class, since, session string, all bool) ([]model.Task, int, error) {
 	var cut time.Time
 	if since != "" {
-		t, err := time.Parse("2006-01-02", since)
+		// 사람이 적는 날짜는 자기 시간대의 날짜다. UTC 로 읽으면 KST 에서 9시간 어긋난다.
+		t, err := time.ParseInLocation("2006-01-02", since, time.Local)
 		if err != nil {
 			return nil, 0, fail(exitUsage, "--since 는 YYYY-MM-DD 꼴입니다 : %s", since)
 		}

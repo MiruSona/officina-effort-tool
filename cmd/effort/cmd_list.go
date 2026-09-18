@@ -57,7 +57,7 @@ func cmdList(args []string) error {
 	rows := make([][]string, 0, len(tasks))
 	for _, t := range tasks {
 		rows = append(rows, []string{
-			shortID(t.PromptID), t.Start.Format("01-02 15:04"), classLabel(&t),
+			shortID(t.PromptID), t.Start.Local().Format("01-02 15:04"), classLabel(&t),
 			render.Minutes(t.WallMs), render.Minutes(t.PureMs),
 			render.Tokens(t.Usage.Sum().Total()),
 			fmt.Sprintf("%d", len(t.Agents)),
