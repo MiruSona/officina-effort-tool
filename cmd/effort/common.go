@@ -125,11 +125,14 @@ func anyTaskHasPrefix(tasks []model.Task, id string) bool {
 }
 
 // printMissingMarks 는 정본의 작업을 캐시에서 못 찾았을 때 알린다.
+// 경고는 stderr 로 간다. stdout 에 섞으면 --json 을 받는 쪽이 깨진다.
 func printMissingMarks(n int) {
 	if n == 0 {
 		return
 	}
-	fmt.Printf("주의 : 정본의 작업 %d건을 캐시에서 못 찾았습니다 (effort scan --all 을 돌려 보세요).\n", n)
+	fmt.Fprintf(os.Stderr, "주의 : groups.txt(사람이 표시한 소단계)에 적힌 작업 %d건이 캐시에 없습니다. "+
+		"그 작업이 든 프로젝트를 아직 안 훑었거나 캐시가 지워진 것입니다.\n", n)
+	fmt.Fprintln(os.Stderr, "      effort scan --all 을 한 번 돌리면 채워집니다. 그 전에는 해당 묶음이 표에서 빠지거나 작게 나옵니다.")
 }
 
 func printJSON(v any) error {

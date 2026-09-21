@@ -123,8 +123,12 @@ func printEstimateTable(rows []estimate.Row, human, wide bool) {
 		head = []string{"소단계", "분류", "예상", "범위", "사람눈금", "근거"}
 	}
 	var sum, lo, hi, hsum int64
+	humanBlank := false
 	out := make([][]string, 0, len(rows)+1)
 	for _, r := range rows {
+		if r.HumanMs == 0 {
+			humanBlank = true
+		}
 		sum += r.P50Ms
 		lo += r.P20Ms
 		hi += r.P80Ms
@@ -150,4 +154,8 @@ func printEstimateTable(rows []estimate.Row, human, wide bool) {
 	}
 	fmt.Print(render.Table(head, out, style))
 	fmt.Println("\n합의 범위는 각 칸의 단순 합이다 (분산 합이 아니다 — 사람이 검산할 수 있게).")
+	fmt.Println("이 값은 본줄 시간이다 (서브에이전트·외부 대기·사람 대기는 안 들어간다). 사람 시간 칸에 그대로 옮겨 적지 않는다.")
+	if human && humanBlank {
+		fmt.Println("사람눈금 — : --from 표의 「사람눈금」 열에 분을 적은 줄만 찹니다 (적은 값 × rules.txt human 배율). 인자 꼴에는 적을 자리가 없습니다.")
+	}
 }

@@ -7,7 +7,7 @@ const helpAll = `effort — Claude Code 기록으로 공수를 재는 툴
 쓰는 법 :
   effort scan     [--home DIR] [--projects DIR] [--project NAME|--all] [--rebuild] [--titles=false] [--quiet]
   effort stats    [--class C] [--since YYYY-MM-DD] [--by class|agent|model|session|group] [--group KEY] [--wide|--json]
-  effort estimate [소단계...] [--from FILE|-] [--unit group|task] [--group KEY] [--human] [--metric wall|pure] [--wide|--json]
+  effort estimate [--from FILE|-] [--unit group|task] [--group KEY] [--human] [--metric wall|pure] [--wide|--json] [소단계...]
   effort show     <promptId|접두사> [--json]
   effort list     [--class C] [--since D] [--session ID] [--group KEY] [--limit N] [--sort wall|pure|tok]
   effort group    [--add <이름>] [--class C] [--drop <묶음id>] [--since D] [--session ID] [--group KEY] [작업id...]
@@ -28,7 +28,7 @@ const helpAll = `effort — Claude Code 기록으로 공수를 재는 툴
 var helpTopic = map[string]string{
 	"scan":     "scan : JSONL 을 훑어 작업을 캐시에 넣는다. 기본은 바뀐 파일만, --rebuild 는 통째로.\n원본 JSONL 은 읽기만 한다. 캐시는 지워도 --rebuild 로 되살아난다.",
 	"stats":    "stats : 분류·에이전트·모델·세션별 건수·벽시계·순수시간·토큰을 찍는다. 캐시만 읽는다.",
-	"estimate": "estimate : 소단계 목록을 받아 예상·범위 표를 낸다. 인자와 --from 은 같이 못 쓴다.",
+	"estimate": "estimate : 소단계 목록을 받아 예상·범위 표를 낸다. 인자와 --from 은 같이 못 쓴다.\n옵션은 소단계 앞에 둔다 : effort estimate --human 조사:S (소단계 뒤에 쓰면 오류로 막는다).\n--human 은 --from 표의 「사람눈금」 열에 적은 분에 rules.txt 의 human 배율을 곱해 칸 하나를 더 찍는다.",
 	"show":     "show : 작업 하나를 자세히 본다 (서브에이전트·모델별 토큰·세션 검산).",
 	"list":     "list : 작업을 한 줄씩 본다. --group 을 주면 소단계 묶음을 대신 찍는다.\n--group 일 때는 모든 작업을 묶은 뒤 대표 분류가 일 칸인 묶음만 보여준다 (estimate 표본과 같다).\n그래서 --class 를 같이 주면 뜻이 「대표 분류가 그것인 묶음」으로 바뀐다. --all 은 일 아닌 묶음까지.",
 	"group":    "group : 소단계 경계를 사람이 표시하고 묶음을 본다.\n정본은 ~/.effort/groups.txt 다. 캐시가 아니라 scan --rebuild 로도 안 날아간다.\n--add 는 끝에 덧붙이기만 하고, --drop 은 그 묶음 줄만 뺀다.",

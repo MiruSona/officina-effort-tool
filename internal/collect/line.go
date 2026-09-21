@@ -32,6 +32,11 @@ var knownSideTypes = map[string]bool{
 	"atis-latch":            true,
 	"ai-title":              true,
 	"cost-state":            true,
+	// Claude Code 새 판에서 늘어난 종류들이다.
+	"artifact-autoreact-ledger": true,
+	"artifact-comment-monitor":  true,
+	"frame-link":                true,
+	"custom-title":              true,
 }
 
 // unknownLineType 은 본줄도 아는 곁줄도 아닌 종류인지다.

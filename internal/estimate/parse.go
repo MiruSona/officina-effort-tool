@@ -90,6 +90,10 @@ func ParseTable(r io.Reader) ([]Item, error) {
 			if err != nil {
 				return nil, fmt.Errorf("%d번째 줄: 사람눈금이 숫자가 아닙니다 (%s)", n, cells[3])
 			}
+			// 0 을 넣으면 「안 적었다」와 구별이 안 돼 안내 푸터가 뜬다. 빈 칸으로 두게 막는다.
+			if v <= 0 {
+				return nil, fmt.Errorf("%d번째 줄: 사람눈금은 1분 이상입니다 (%s). 없으면 칸을 비웁니다", n, cells[3])
+			}
 			it.Human = v
 		}
 		out = append(out, it)

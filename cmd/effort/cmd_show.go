@@ -59,7 +59,7 @@ func printTask(st *store.Store, t *model.Task) {
 	fmt.Printf("제목 : %s\n", t.Title)
 	fmt.Printf("세션 : %s · 프로젝트 : %s\n", t.SessionID, t.Project)
 	fmt.Printf("분류 : %s (%s) · 판 : %s · 시작 : %s\n",
-		t.Class, t.ClassBy, t.Version, t.Start.Local().Format("2006-01-02 15:04:05"))
+		t.Class, t.ClassBy, t.Version, t.Start.Local().Format("2006-01-02 15:04:05 -07:00"))
 	fmt.Printf("벽시계 %s (본줄 %s · 서브 %s) · 순수시간 %s · 턴 %d\n",
 		render.Minutes(t.WallMs), render.Minutes(t.MainWallMs), render.Minutes(t.AgentWallMs),
 		render.Minutes(t.PureMs), t.Turns)

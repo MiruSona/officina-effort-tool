@@ -53,11 +53,13 @@ func cmdList(args []string) error {
 		return printJSON(tasks)
 	}
 	fmt.Println(render.DataNotice)
-	head := []string{"작업", "날짜", "분류", "벽시계", "순수", "토큰", "에이전트", "제목"}
+	// 표의 시각은 로컬이다. 머리에 시간대를 적어야 UTC 로 오해하지 않는다.
+	dateHead, dateLayout := listDateColumn(tasks)
+	head := []string{"작업", dateHead, "분류", "벽시계", "순수", "토큰", "에이전트", "제목"}
 	rows := make([][]string, 0, len(tasks))
 	for _, t := range tasks {
 		rows = append(rows, []string{
-			shortID(t.PromptID), t.Start.Local().Format("01-02 15:04"), classLabel(&t),
+			shortID(t.PromptID), t.Start.Local().Format(dateLayout), classLabel(&t),
 			render.Minutes(t.WallMs), render.Minutes(t.PureMs),
 			render.Tokens(t.Usage.Sum().Total()),
 			fmt.Sprintf("%d", len(t.Agents)),
@@ -70,6 +72,21 @@ func cmdList(args []string) error {
 	}
 	fmt.Print(render.Table(head, rows, style))
 	return nil
+}
+
+// listDateColumn 은 날짜 칸의 머리와 시각 꼴을 정한다. 오프셋은 찍을 줄들에서 뽑는다
+// — time.Now() 로 뽑으면 서머타임 시간대에서 지난 작업과 한 시간 어긋난다.
+func listDateColumn(tasks []model.Task) (head, layout string) {
+	zone := ""
+	for i := range tasks {
+		z := tasks[i].Start.Local().Format("-07:00")
+		if i > 0 && z != zone {
+			// 줄마다 오프셋이 다르면 머리에 하나를 적을 수 없다. 줄에 붙인다.
+			return "날짜", "01-02 15:04 -07:00"
+		}
+		zone = z
+	}
+	return "날짜(" + zone + ")", "01-02 15:04"
 }
 
 // groupPick 은 묶음을 고르는 조건이다.

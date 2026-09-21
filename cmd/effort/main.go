@@ -13,6 +13,12 @@ import (
 // Version 은 이 툴의 판이다.
 const Version = "0.1.0"
 
+// build.ps1 이 -ldflags 로 박는다. 그냥 go build 로 만들면 비어 있다.
+var (
+	buildCommit string
+	buildTime   string
+)
+
 // 종료 코드.
 const (
 	exitOK      = 0
@@ -30,6 +36,9 @@ type codedError struct {
 }
 
 func (e *codedError) Error() string { return e.msg }
+
+// errHelpShown 은 -h 로 그 명령의 도움말을 이미 찍었다는 표시다. 오류 줄 없이 종료 0 이다.
+var errHelpShown = errors.New("도움말을 찍었다")
 
 func fail(code int, format string, a ...any) error {
 	return &codedError{code: code, msg: fmt.Sprintf(format, a...)}
@@ -65,7 +74,16 @@ func run(args []string) int {
 	case "rules":
 		err = cmdRules(rest)
 	case "version", "--version", "-v":
-		fmt.Println("effort " + Version)
+		stamp := buildCommit
+		if buildTime != "" && stamp != "" {
+			stamp += " · " + buildTime
+		} else if buildTime != "" {
+			stamp = buildTime
+		}
+		if stamp == "" {
+			stamp = "dev"
+		}
+		fmt.Printf("effort %s (%s)\n", Version, stamp)
 		return exitOK
 	case "help", "--help", "-h":
 		topic := ""
@@ -79,16 +97,13 @@ func run(args []string) int {
 		printHelp("")
 		return exitUsage
 	}
-	if err == nil {
+	if err == nil || errors.Is(err, errHelpShown) {
 		return exitOK
 	}
 	var ce *codedError
 	if errors.As(err, &ce) {
 		fmt.Fprintln(os.Stderr, ce.msg)
 		return ce.code
-	}
-	if errors.Is(err, flag.ErrHelp) {
-		return exitUsage
 	}
 	if errors.Is(err, store.ErrNoCache) {
 		fmt.Fprintln(os.Stderr, "캐시가 없습니다. 먼저 `effort scan` 을 돌리세요.")
@@ -126,11 +141,17 @@ func openStore(home, projects string) (*store.Store, string, error) {
 func newFlags(name string) *flag.FlagSet {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
+	// flag 의 영어 사용법이 stderr 로 새지 않게 막는다. 도움말은 우리 글로 찍는다.
+	fs.Usage = func() {}
 	return fs
 }
 
 func parseFlags(fs *flag.FlagSet, args []string) error {
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			printHelp(fs.Name())
+			return errHelpShown
+		}
 		return fail(exitUsage, "옵션이 잘못됐습니다 (%s)", fs.Name())
 	}
 	// Go 의 flag 는 첫 위치 인자에서 읽기를 멈춘다. 뒤에 남은 옵션은 조용히 무시되므로 막는다.

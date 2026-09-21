@@ -16,21 +16,47 @@ Claude Code 가 남긴 세션 기록(JSONL)만 읽어 **무슨 일에 시간과 
 - **순수시간** = 턴 시간(`turn_duration`)의 합. 벽시계를 넘으면 벽시계로 자르고 `순수시간잘림` 을 단다.
 - **묶음(소단계) 시간** = 안에 든 작업 구간의 합집합. 작업과 작업 **사이의 사람 대기는 안 든다.**
 
+## 서브에이전트가 한 일 재기
+
+**서브에이전트는 자기 판을 못 잰다.** 돌고 있는 동안에는 그 세션 기록에 아직 `cost-state` 줄이 없고,
+`scan` 은 `cost-state` 줄이 없는 세션을 「진행 중」으로 보아 **그 세션의 마지막 작업 한 건에
+`cost-state없음` 표시를 단다.** 그 표시가 붙은 작업·묶음은 예상 표본에서 빠진다
+(끝 시각이 없어 시간이 짧게 잡히면 배율을 낮춰 버리기 때문이다).
+그러니 **판이 끝난 뒤 메인 세션이 잰다.**
+
+```powershell
+.\bin\effort.exe scan                 # 끝난 판의 기록을 캐시에 넣는다
+.\bin\effort.exe list --since 2026-09-21
+.\bin\effort.exe show <작업id앞자리>   # 「서브」 칸 · 에이전트 표의 「벽시계」
+```
+
+- 서브에이전트가 돈 시간은 `show` 의 벽시계 줄 **「서브」 칸**과 **에이전트 표의 「벽시계」 열**에 나온다.
+- 그 값은 **총계에도 `actual` 의 실제값에도 안 든다.** 참고값이다.
+  공수 표에 적을 때는 **「서브(참고) N분」** 으로 어디서 온 값인지 밝힌다.
+- **시간을 손으로 적어 넣는 길은 없다.** `group --add` 는 소단계 경계를 표시할 뿐이고,
+  `actual` 은 잰 값만 읽는다. 값이 안 나오면 지어내지 말고 **「못 쟀다」고 적는다.**
+
 ## 빌드
 
 ```powershell
-$env:CGO_ENABLED="0"
-go build -o bin/effort.exe ./cmd/effort
+.\build.ps1          # bin\effort.exe 를 만든다
+.\build.ps1 -Test    # go vet · go test 까지 돌리고 만든다
 ```
 
-EffortTool 폴더 안에서 친다. 스튜디오(Officina) 저장소에서라면 `cd EffortTool` 을 먼저 한다.
+EffortTool 폴더 안에서 친다. `build.ps1` 은 **코드(`cmd` · `internal` · `go.mod`)를 마지막으로 바꾼 커밋**과
+빌드 시각을 실행 파일에 박으므로 `effort --version` 이 **어느 소스로 구운 것인지** 말해 준다.
+그 경로에 **미커밋 변경이 있으면 `-dirty`** 가 붙고, git 이 없거나 `.git` 이 없으면 `(dev)` 로 찍는다.
 
-## 어디서 부르나 — 명령 두 벌
+## 어디서 부르나 — 명령 세 벌
 
 | 어디서 쓰나 | 명령 앞자리 |
 | --- | --- |
 | EffortTool 저장소 단독에서 | `.\bin\effort.exe …` |
 | 스튜디오(Officina) 저장소에서 | `.\EffortTool\bin\effort.exe …` |
+| 서브모듈로 붙인 저장소에서 | `.\Tools\EffortTool\bin\effort.exe …` |
+
+`bin/` 은 git 에 안 들어간다. **서브모듈을 당긴 뒤에는 그 폴더에서 `.\build.ps1` 로 다시 빌드한다**
+(옛 exe 는 시각을 UTC 로 찍고 옛 버그를 그대로 갖는다).
 
 아래 예시는 단독 저장소 기준(`.\bin\…`)으로 적는다.
 
@@ -68,7 +94,7 @@ EffortTool 폴더 안에서 친다. 스튜디오(Officina) 저장소에서라면
 ```
 effort scan     [--home DIR] [--projects DIR] [--project NAME|--all] [--rebuild] [--titles=false] [--quiet]
 effort stats    [--class C] [--since YYYY-MM-DD] [--by class|agent|model|session|group] [--group KEY] [--wide|--json]
-effort estimate [소단계...] [--from FILE|-] [--unit group|task] [--group KEY] [--human] [--metric wall|pure] [--days N] [--no-x2] [--freeze]
+effort estimate [--from FILE|-] [--unit group|task] [--group KEY] [--human] [--metric wall|pure] [--days N] [--no-x2] [--freeze] [소단계...]
 effort show     <promptId|접두사> [--json]
 effort list     [--class C] [--since D] [--session ID] [--group KEY] [--limit N] [--sort wall|pure|tok]
 effort group    [--add <이름>] [--class C] [--drop <묶음id>] [--since D] [--session ID] [--group KEY] [작업id...]
@@ -77,7 +103,10 @@ effort rules    [--check]
 ```
 
 - `KEY`(묶는 열쇠) = `mark`(기본 — 사람 표시 먼저, 남은 것은 세션 안 30분 간격) · `gap:30m` · `class` · `session` · `none`.
-- **옵션은 명령 바로 뒤**, 작업 id 는 맨 끝에 둔다. 어기면 바른 차례를 알려 주며 오류로 막는다.
+- **옵션은 명령 바로 뒤**, 소단계·작업 id 는 맨 끝에 둔다. 어기면 바른 차례를 알려 주며 오류로 막는다.
+  예 : `effort estimate --human 조사:S` (거꾸로 쓰면 종료 1).
+- `--human` 은 **`--from` 표의 「사람눈금」 열에 분을 적은 줄**에만 값이 찬다
+  (적은 값 × `rules.txt` 의 `human` 배율). 인자 꼴에는 적을 자리가 없어 칸이 `—` 로 남는다.
 
 - 소단계 꼴은 `[이름:]분류[:크기]` 다. 예 : `조사:M` · `시험:구현:L` · `구현`(크기 M).
 - 분류는 **조사 · 설계 · 구현 · 실측 · 문서 · 검토 · 미분류**, 크기는 **S · M · L · XL** 이다.
@@ -190,6 +219,22 @@ gap	max	30            자동 소단계 묶기의 간격 컷 (분)
 - `promptId` 는 `user` 줄에만 있다. `assistant` · `turn_duration` 줄은 파일 순서대로 앞선 `promptId` 를 이어받는다.
 - 같은 `(requestId, message.id)` 로 여러 줄이 나오는 것은 스트리밍 스냅숏이다. **마지막 것만** 센다
   (그냥 더하면 2.7배로 부푼다). 단조 증가가 깨진 자리는 `scan` 끝 줄에 건수를 찍는다.
+- **표의 시각은 로컬이고, JSON 은 UTC 다.** `list` 머리의 `날짜(+09:00)` 와 `show` 의 `-07:00` 꼴이
+  로컬 시간대를 말해 준다. `--json` 값은 원본 그대로 UTC 라 기계끼리 견줄 때 쓴다.
+- **제목이 `?덈뒗` 처럼 보이면 원본 세션 기록이 이미 깨진 것이다.** 툴이 깨뜨린 것이 아니다
+  (`claude -p` 에 한글을 CP949 셸 파이프로 넘긴 세션이다).
+- **출력을 바이트 단위(`head -c` · `cut -c`)로 자르면 한글이 깨진다.** 줄 단위(`head -n`)로 자른다.
+
+## 다른 저장소에 붙일 때
+
+서브모듈로 붙인 저장소의 `AGENTS.md` 나 세션 시작 훅 글에 아래 한 줄을 넣는다.
+**훅을 설치해 주는 기능은 만들지 않았다** — 이 툴이 쓰는 자리는 `.effort` 뿐이라는 원칙 때문이다.
+
+```
+공수 재기 : .\Tools\EffortTool\bin\effort.exe scan → estimate <분류:크기…> (예상) · list/show (실제). 서브에이전트 판은 끝난 뒤 메인이 잰다. 규칙 : Tools/EffortTool/.claude/skills/effort-usage/SKILL.md
+```
+
+**서브에이전트에서는 스킬 목록에 안 뜬다.** `SKILL.md` 를 파일로 직접 읽게 한다.
 
 ## 개인정보
 

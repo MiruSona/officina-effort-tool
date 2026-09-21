@@ -54,6 +54,16 @@ func TestEstimateParsePipeTable(t *testing.T) {
 	}
 }
 
+// 사람눈금 0 은 빈 칸과 구별이 안 된다. 적었는데 안내 푸터가 뜨는 일을 막는다.
+func TestParseTableRejectsNonPositiveHuman(t *testing.T) {
+	for _, v := range []string{"0", "-5"} {
+		src := "| 소단계 | 분류 | 크기 | 사람눈금 |\n| a | 구현 | M | " + v + " |\n"
+		if _, err := ParseTable(strings.NewReader(src)); err == nil {
+			t.Fatalf("사람눈금 %s 인데 안 막았다", v)
+		}
+	}
+}
+
 func TestParseTableSkipsHeadAndSeparator(t *testing.T) {
 	src := "| 소단계 | 분류 |\n|---|---|\n| a | 구현 |\n"
 	items, err := ParseTable(strings.NewReader(src))

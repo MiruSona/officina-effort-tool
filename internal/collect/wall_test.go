@@ -168,3 +168,21 @@ func TestBgAgentWarned(t *testing.T) {
 		t.Fatalf("배경 갈래 표시가 없다 : %v", res.Tasks[0].Warn)
 	}
 }
+
+// Claude Code 새 판의 줄 종류들도 「알고 뺀」 곁줄이어야 한다. 모르는 종류로 세면 안 된다.
+func TestArtifactLinesAreKnownSide(t *testing.T) {
+	res := writeSession(t,
+		userLine("p1", "2026-08-30T10:00:00.000Z"),
+		`{"type":"assistant","message":{"role":"assistant","id":"m1","model":"opus"},"uuid":"a1","timestamp":"2026-08-30T10:00:10.000Z"}`,
+		`{"type":"artifact-autoreact-ledger","timestamp":"2026-08-30T10:30:00.000Z"}`,
+		`{"type":"artifact-comment-monitor","timestamp":"2026-08-30T10:31:00.000Z"}`,
+		`{"type":"frame-link","timestamp":"2026-08-30T10:32:00.000Z"}`,
+		`{"type":"custom-title","timestamp":"2026-08-30T10:33:00.000Z"}`,
+	)
+	if len(res.Unknown) != 0 {
+		t.Fatalf("아는 곁줄인데 모르는 종류로 셌다 : %v", res.Unknown)
+	}
+	if res.Tasks[0].WallMs != 10000 {
+		t.Fatalf("벽시계 = %d ms, 바란 값 10000 (곁줄이 끝을 밀었다)", res.Tasks[0].WallMs)
+	}
+}
