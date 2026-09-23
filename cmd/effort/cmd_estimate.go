@@ -3,7 +3,9 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
+	"github.com/mirusona/officina-effort-tool/internal/classify"
 	"github.com/mirusona/officina-effort-tool/internal/estimate"
 	"github.com/mirusona/officina-effort-tool/internal/model"
 	"github.com/mirusona/officina-effort-tool/internal/render"
@@ -35,7 +37,7 @@ func cmdEstimate(args []string) error {
 	if fs.NArg() > 0 && *from != "" {
 		return fail(exitUsage, "소단계 인자와 --from 은 같이 못 씁니다. 하나만 주세요.")
 	}
-	items, err := readItems(fs.Args(), *from)
+	items, err := readItems(fs.Args(), *from, *home)
 	if err != nil {
 		return err
 	}
@@ -74,7 +76,7 @@ func cmdEstimate(args []string) error {
 	if *asJSON {
 		return printJSON(rows)
 	}
-	printEstimateTable(rows, *human, *wide)
+	printEstimateTable(rows, *human, *wide, *unit, *metric)
 	return nil
 }
 
@@ -90,11 +92,11 @@ func samplesFor(st *store.Store, tasks []model.Task, unit, keyStr string) ([]est
 	return estimate.SamplesFromGroups(groups), nil
 }
 
-func readItems(args []string, from string) ([]estimate.Item, error) {
+func readItems(args []string, from, home string) ([]estimate.Item, error) {
 	if from == "" {
 		items, err := estimate.ParseArgs(args)
 		if err != nil {
-			return nil, fail(exitUsage, "%v", err)
+			return nil, fail(exitUsage, "%v", estimate.ExplainArgError(err, rulesForHelp(home)))
 		}
 		return items, nil
 	}
@@ -117,7 +119,7 @@ func readItems(args []string, from string) ([]estimate.Item, error) {
 	return items, nil
 }
 
-func printEstimateTable(rows []estimate.Row, human, wide bool) {
+func printEstimateTable(rows []estimate.Row, human, wide bool, unit, metric string) {
 	head := []string{"소단계", "분류", "예상", "범위", "근거"}
 	if human {
 		head = []string{"소단계", "분류", "예상", "범위", "사람눈금", "근거"}
@@ -153,9 +155,30 @@ func printEstimateTable(rows []estimate.Row, human, wide bool) {
 		style = render.Wide
 	}
 	fmt.Print(render.Table(head, out, style))
-	fmt.Println("\n합의 범위는 각 칸의 단순 합이다 (분산 합이 아니다 — 사람이 검산할 수 있게).")
-	fmt.Println("이 값은 본줄 시간이다 (서브에이전트·외부 대기·사람 대기는 안 들어간다). 사람 시간 칸에 그대로 옮겨 적지 않는다.")
+	fmt.Println("\n합의 범위는 각 칸의 단순 합이다 (분산 합이 아니다 — 사람이 검산할 수 있게). 칸은 반올림이라 합과 ±1분 어긋날 수 있다.")
+	if metric == "pure" {
+		// 순수시간 표본에는 서브 포함 값이 없다 (estimate.New).
+		fmt.Println("이 값은 순수(턴 합) 시간이다. 사람 시간 칸에 그대로 옮겨 적지 않는다.")
+	} else {
+		fmt.Println("이 값은 본줄 시간이다 (서브에이전트·외부 대기·사람 대기는 안 들어간다). 사람 시간 칸에 그대로 옮겨 적지 않는다.")
+		fmt.Printf("이 표본은 메인 세션 본줄 %s이다. 서브에이전트 한 판의 실제 시간은 「서브 포함」 쪽 자릿수에 가깝다.\n", estimate.UnitLabel(unit))
+	}
 	if human && humanBlank {
 		fmt.Println("사람눈금 — : --from 표의 「사람눈금」 열에 분을 적은 줄만 찹니다 (적은 값 × rules.txt human 배율). 인자 꼴에는 적을 자리가 없습니다.")
 	}
+}
+
+// rulesForHelp 는 인자 오류 안내에 쓸 규칙을 읽는다. 저장소 규칙을 못 읽으면 기본 규칙으로 안내한다.
+// 오류를 알려 주는 길이라 여기서 또 실패를 내지 않는다.
+func rulesForHelp(home string) *classify.Rules {
+	if st, _, err := openStore(home, ""); err == nil {
+		if r, err := st.LoadRules(); err == nil {
+			return r
+		}
+	}
+	r, err := classify.ParseRules(strings.NewReader(classify.DefaultRulesText))
+	if err != nil {
+		return nil
+	}
+	return r
 }

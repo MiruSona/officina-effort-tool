@@ -44,6 +44,21 @@ func TestEstimateMainlineFooter(t *testing.T) {
 	if !strings.Contains(out, "이 값은 본줄 시간이다") {
 		t.Fatalf("본줄 안내가 없다 :\n%s", out)
 	}
+	if !strings.Contains(out, "이 표본은 메인 세션 본줄 묶음이다") || !strings.Contains(out, "「서브 포함」 쪽 자릿수에 가깝다") {
+		t.Fatalf("표본 안내가 없다 :\n%s", out)
+	}
+	if !strings.Contains(out, "칸은 반올림이라 합과 ±1분 어긋날 수 있다") {
+		t.Fatalf("반올림 안내가 없다 :\n%s", out)
+	}
+}
+
+// --metric pure 면 꼬리말이 순수시간을 말하고 「서브 포함」 문장은 없다.
+func TestEstimatePureFooter(t *testing.T) {
+	home := scanForGroups(t)
+	_, out := capture(t, "estimate", "--home", home, "--metric", "pure", "조사:S")
+	if !strings.Contains(out, "이 값은 순수(턴 합) 시간이다") || strings.Contains(out, "본줄 시간이다") || strings.Contains(out, "서브 포함") {
+		t.Fatalf("순수 꼬리말이 아니다 :\n%s", out)
+	}
 }
 
 // group --add 는 없는 작업 id 를 막으므로, 캐시에 없는 줄은 정본에 직접 적어 만든다.

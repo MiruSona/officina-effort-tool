@@ -44,7 +44,7 @@ func cmdActual(args []string) error {
 	if *metric != "wall" && *metric != "pure" {
 		return fail(exitUsage, "--metric 은 wall 또는 pure 입니다 : %s", *metric)
 	}
-	items, err := readItems(nil, *from)
+	items, err := readItems(nil, *from, *home)
 	if err != nil {
 		return err
 	}

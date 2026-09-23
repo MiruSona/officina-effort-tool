@@ -63,7 +63,9 @@ type Group struct {
 	// WallMs 는 안에 든 작업 본줄 구간의 합집합이다. 작업 사이의 사람 대기는 안 든다.
 	WallMs int64 `json:"wall_ms"`
 	// AgentWallMs 는 안에 든 서브에이전트 구간의 합집합이다. 총계에 안 넣는 참고값이다.
-	AgentWallMs int64    `json:"agent_wall_ms"`
+	AgentWallMs int64 `json:"agent_wall_ms"`
+	// WithAgentMs 는 본줄과 서브 구간을 한 번에 합집합한 길이다. estimate 근거 칸의 참고값이다.
+	WithAgentMs int64    `json:"with_agent_ms"`
 	PureMs      int64    `json:"pure_ms"`
 	Tokens      int64    `json:"tokens"`
 	Warn        []string `json:"warn"`
@@ -214,6 +216,7 @@ func fill(g *Group, members []model.Task) {
 	}
 	g.WallMs = collect.UnionMs(spans)
 	g.AgentWallMs = collect.UnionMs(agentSpans)
+	g.WithAgentMs = collect.UnionMs(append(append([]collect.Span{}, spans...), agentSpans...))
 	if g.Class == "" {
 		g.Class = topClass(byClass)
 	}

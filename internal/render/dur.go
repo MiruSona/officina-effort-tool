@@ -10,7 +10,8 @@ func Minutes(ms int64) string {
 	if ms < 60*1000 {
 		return "1분 미만"
 	}
-	min := ms / 60000
+	// 반올림한다. 버리면 1.8분이 「1분」이 돼 작은 값이 더 작아 보인다. 1분 미만 표시는 위에서 끝난다.
+	min := (ms + 30000) / 60000
 	if min < 60 {
 		return fmt.Sprintf("%d분", min)
 	}

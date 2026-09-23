@@ -160,3 +160,77 @@ func TestEstimateHumanScale(t *testing.T) {
 		t.Fatalf("사람 눈금 = %d ms, 바란 값 15분", r.HumanMs)
 	}
 }
+
+// withAgent 는 서브 포함 시간을 넣은 표본 n건이다.
+func withAgent(c model.Class, n int, wallMin, withMin int64) []Sample {
+	out := samplesOf(c, n, wallMin)
+	for i := range out {
+		out[i].WithAgentMs = withMin * 60000
+	}
+	return out
+}
+
+// 근거 칸은 표본 단위·본줄 중앙·서브 포함 중앙을 같이 찍는다.
+func TestEstimateSourceShowsSampleMedians(t *testing.T) {
+	opt := DefaultOptions()
+	e := New(rules(t), withAgent(model.ClassBuild, 20, 2, 5), opt)
+	r := e.Estimate(Item{Name: "a", Class: model.ClassBuild, Size: "M"}, opt)
+	want := "실측 n=20 · 본줄 묶음 중앙 2.0분 (서브 포함 5.0분)"
+	if r.Source != want {
+		t.Fatalf("근거 = %q, 바란 값 %q", r.Source, want)
+	}
+	if r.Unit != UnitGroup || r.SampleN != 20 || r.SampleP50Ms != 2*60000 || r.WithAgentP50Ms != 5*60000 {
+		t.Fatalf("JSON 칸 = %+v", r)
+	}
+}
+
+func TestEstimateSourceSeedAndTaskUnit(t *testing.T) {
+	opt := DefaultOptions()
+	opt.Unit = UnitTask
+	e := New(rules(t), withAgent(model.ClassBuild, 3, 1, 4), opt)
+	r := e.Estimate(Item{Name: "a", Class: model.ClassBuild, Size: "M"}, opt)
+	if r.Source != "시드 (n=3) · 본줄 작업 중앙 1.0분 (서브 포함 4.0분)" {
+		t.Fatalf("근거 = %q", r.Source)
+	}
+	// 실측 ×2 꼬리는 중앙값 앞에 붙는다 — 중앙값은 배율을 안 탄 표본 값이다.
+	e2 := New(rules(t), withAgent(model.ClassMeasure, 3, 1, 4), opt)
+	r2 := e2.Estimate(Item{Name: "b", Class: model.ClassMeasure, Size: "M"}, opt)
+	if r2.Source != "시드 (n=3) ×2(실측) · 본줄 작업 중앙 1.0분 (서브 포함 4.0분)" {
+		t.Fatalf("근거 = %q", r2.Source)
+	}
+}
+
+// 표본이 없으면 중앙값을 안 찍는다. 서브 포함 중앙이 없거나 본줄 중앙과 같으면 괄호를 뺀다.
+// 순수시간에는 서브 포함이 없다.
+func TestEstimateSourceOmitsMissingOrSame(t *testing.T) {
+	opt := DefaultOptions()
+	e := New(rules(t), nil, opt)
+	r := e.Estimate(Item{Name: "a", Class: model.ClassBuild, Size: "M"}, opt)
+	if r.Source != "시드 (n=0)" || r.SampleP50Ms != 0 {
+		t.Fatalf("근거 = %q · %+v", r.Source, r)
+	}
+	e2 := New(rules(t), samplesOf(model.ClassBuild, 3, 2), opt)
+	if got := e2.Estimate(Item{Class: model.ClassBuild, Size: "M"}, opt).Source; got != "시드 (n=3) · 본줄 묶음 중앙 2.0분" {
+		t.Fatalf("서브 없음 근거 = %q", got)
+	}
+	opt.Metric = "pure"
+	e3 := New(rules(t), withAgent(model.ClassBuild, 3, 2, 5), opt)
+	if got := e3.Estimate(Item{Class: model.ClassBuild, Size: "M"}, opt).Source; got != "시드 (n=3) · 순수 묶음 중앙 2.0분" {
+		t.Fatalf("순수 근거 = %q", got)
+	}
+	opt.Metric = "wall"
+	e4 := New(rules(t), withAgent(model.ClassBuild, 3, 2, 2), opt)
+	if got := e4.Estimate(Item{Class: model.ClassBuild, Size: "M"}, opt).Source; got != "시드 (n=3) · 본줄 묶음 중앙 2.0분" {
+		t.Fatalf("서브 포함이 본줄과 같은데 괄호가 붙었다 = %q", got)
+	}
+}
+
+func TestSamplesFromTasksWithAgent(t *testing.T) {
+	now := time.Now()
+	tk := model.Task{Class: model.ClassBuild, Start: now, End: now.Add(2 * time.Minute), WallMs: 2 * 60000,
+		Agents: []model.Agent{{Start: now.Add(time.Minute), End: now.Add(6 * time.Minute)}}}
+	s := SamplesFromTasks([]model.Task{tk})
+	if s[0].WithAgentMs != 6*60000 {
+		t.Fatalf("서브 포함 = %d", s[0].WithAgentMs)
+	}
+}

@@ -26,6 +26,11 @@ type Row struct {
 	P80Ms   int64
 	Source  string
 	HumanMs int64
+	// 표본이 무엇이었나. 예상값이 작게 나오는 까닭(메인 본줄만 셈)을 표 안에서 보이게 한다.
+	Unit           string // group | task
+	SampleN        int
+	SampleP50Ms    int64 // 배율을 안 탄 표본 중앙값. 표본 0건이면 0
+	WithAgentP50Ms int64 // 서브에이전트 구간까지 합친 중앙값. 없으면 0
 }
 
 // 표본 단위 이름.
@@ -55,8 +60,10 @@ type Sample struct {
 	Class  model.Class
 	WallMs int64
 	PureMs int64
-	Start  time.Time
-	Warn   []string
+	// WithAgentMs 는 본줄과 서브에이전트 구간의 합집합이다. 참고값으로 근거 칸에만 쓴다. 0 이면 모름
+	WithAgentMs int64
+	Start       time.Time
+	Warn        []string
 }
 
 func (s *Sample) hasWarn(w string) bool {
@@ -73,8 +80,13 @@ func SamplesFromTasks(tasks []model.Task) []Sample {
 	out := make([]Sample, 0, len(tasks))
 	for i := range tasks {
 		t := &tasks[i]
+		spans := []collect.Span{{Start: t.Start, End: t.End}}
+		for _, a := range t.Agents {
+			spans = append(spans, collect.Span{Start: a.Start, End: a.End})
+		}
 		out = append(out, Sample{
 			Class: t.Class, WallMs: t.WallMs, PureMs: t.PureMs, Start: t.Start, Warn: t.Warn,
+			WithAgentMs: collect.UnionMs(spans),
 		})
 	}
 	return out
@@ -87,6 +99,7 @@ func SamplesFromGroups(gs []group.Group) []Sample {
 		g := &gs[i]
 		out = append(out, Sample{
 			Class: g.Class, WallMs: g.WallMs, PureMs: g.PureMs, Start: g.Start, Warn: g.Warn,
+			WithAgentMs: g.WithAgentMs,
 		})
 	}
 	return out
@@ -108,11 +121,13 @@ func KeepSample(c model.Class, warn []string) bool {
 type Estimator struct {
 	rules   *classify.Rules
 	samples map[model.Class][]float64
+	// withAgent 는 같은 표본의 서브 포함 시간이다. 근거 칸 참고값으로만 쓰고 예상에는 안 든다.
+	withAgent map[model.Class][]float64
 }
 
 // New 는 표본에서 분류별 값을 뽑는다.
 func New(rules *classify.Rules, samples []Sample, opt Options) *Estimator {
-	e := &Estimator{rules: rules, samples: map[model.Class][]float64{}}
+	e := &Estimator{rules: rules, samples: map[model.Class][]float64{}, withAgent: map[model.Class][]float64{}}
 	cut := opt.Now.AddDate(0, 0, -opt.SinceDay)
 	for i := range samples {
 		s := &samples[i]
@@ -132,6 +147,10 @@ func New(rules *classify.Rules, samples []Sample, opt Options) *Estimator {
 			continue
 		}
 		e.samples[s.Class] = append(e.samples[s.Class], float64(v))
+		// 서브 구간은 벽시계 이야기다. 순수시간(턴 합)과 섞으면 뜻이 안 맞아 뺀다.
+		if opt.Metric != "pure" && s.WithAgentMs > 0 {
+			e.withAgent[s.Class] = append(e.withAgent[s.Class], float64(s.WithAgentMs))
+		}
 	}
 	return e
 }
@@ -163,6 +182,19 @@ func (e *Estimator) Estimate(it Item, opt Options) Row {
 	r.P50Ms = int64(p50 * mul * extra)
 	r.P20Ms = int64(p20 * mul * extra)
 	r.P80Ms = int64(p80 * mul * extra)
+	r.Unit = opt.Unit
+	r.SampleN = len(e.samples[it.Class])
+	if r.SampleN > 0 {
+		r.SampleP50Ms = int64(Quantile(e.samples[it.Class], 0.5))
+		src += fmt.Sprintf(" · %s %s 중앙 %s", metricLabel(opt.Metric), unitLabel(opt.Unit), decMinutes(r.SampleP50Ms))
+	}
+	if w := e.withAgent[it.Class]; r.SampleN > 0 && len(w) > 0 {
+		r.WithAgentP50Ms = int64(Quantile(w, 0.5))
+		// 합집합에는 본줄이 늘 들어 있어 서브가 없으면 본줄 중앙과 같다. 같으면 알려 줄 것이 없다.
+		if r.WithAgentP50Ms != r.SampleP50Ms {
+			src += fmt.Sprintf(" (서브 포함 %s)", decMinutes(r.WithAgentP50Ms))
+		}
+	}
 	r.Source = src
 	if it.Human > 0 {
 		hm := e.rules.Human[it.Class]
@@ -172,6 +204,28 @@ func (e *Estimator) Estimate(it Item, opt Options) Row {
 		r.HumanMs = int64(it.Human * hm * 60000)
 	}
 	return r
+}
+
+func metricLabel(metric string) string {
+	if metric == "pure" {
+		return "순수"
+	}
+	return "본줄"
+}
+
+// UnitLabel 은 표본 단위의 사람 이름이다 (묶음 · 작업).
+func UnitLabel(unit string) string { return unitLabel(unit) }
+
+func unitLabel(unit string) string {
+	if unit == UnitTask {
+		return "작업"
+	}
+	return "묶음"
+}
+
+// decMinutes 는 근거 칸용 소수 한 자리 분이다. 예상 칸(정수 분)과 달리 1분 아래 차이도 보여야 한다.
+func decMinutes(ms int64) string {
+	return fmt.Sprintf("%.1f분", float64(ms)/60000)
 }
 
 // base 는 섞기 규칙에 따라 밑값(ms)을 고른다.

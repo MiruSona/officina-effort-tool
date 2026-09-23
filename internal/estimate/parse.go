@@ -2,6 +2,7 @@ package estimate
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
@@ -37,12 +38,76 @@ func ParseArgs(args []string) ([]Item, error) {
 	return out, nil
 }
 
+// ArgError 는 분류 자리에 분류가 아닌 낱말이 온 인자다.
+// 파서는 규칙을 모르므로 목록·안내는 규칙을 읽은 뒤 ExplainArgError 가 붙인다.
+type ArgError struct {
+	Arg     string // 받은 인자 통째
+	Bad     string // 분류 자리에 온 낱말
+	SizeTok string // 뒤따른 칸 (크기일 수 있다). 없으면 빈 글
+	// Lead 는 두 칸 꼴에서 둘 다 분류가 아닐 때의 앞 칸이다. 이때 Bad 는 뒤 칸이다.
+	// 뒤 칸이 크기면(`검증:M`) 앞 칸이 분류 자리였고, 아니면(`리뷰스킬:검증`) 「이름:분류」 뜻이다.
+	// 크기인지는 규칙을 알아야 하므로 ExplainArgError 가 가른다.
+	Lead string
+}
+
+func (e *ArgError) Error() string {
+	return fmt.Sprintf("모르는 분류 %q 입니다 (인자 %q · 꼴 [이름:]분류[:크기])", e.Bad, e.Arg)
+}
+
+// ExplainArgError 는 ArgError 에 쓸 수 있는 분류 목록과 올바른 보기를 붙인다.
+// 목록은 규칙 word 표에서 읽는다 — 사람이 rules.txt 를 고치면 안내도 따라간다.
+// ArgError 가 아니거나 규칙이 없으면 그대로 돌려준다.
+func ExplainArgError(err error, r *classify.Rules) error {
+	var ae *ArgError
+	if !errors.As(err, &ae) || r == nil {
+		return err
+	}
+	bad, size := ae.Bad, ae.SizeTok
+	if ae.Lead != "" && r.HasSize(ae.Bad) {
+		bad, size = ae.Lead, ae.Bad
+	}
+	msg := fmt.Sprintf("모르는 분류 %q 입니다.", bad)
+	if size != "" && r.HasSize(size) {
+		msg += fmt.Sprintf(" 크기(%s)는 맞습니다. 분류 자리가 틀렸습니다.", strings.ToUpper(size))
+	}
+	msg += fmt.Sprintf(" 쓸 수 있는 분류 : %s. 보기 : `조사:M` · `이름:조사:M`",
+		strings.Join(workClassNames(r), " · "))
+	return errors.New(msg)
+}
+
+// workClassNames 는 word 표에 나오는 분류 가운데 예상할 수 있는 「일」 칸을 표 차례로 준다.
+// word 표에 일 칸이 하나도 없으면 전체 일 칸으로 대신한다 — 빈 목록 안내는 쓸모가 없다.
+func workClassNames(r *classify.Rules) []string {
+	if out := wordWorkClasses(r); len(out) > 0 {
+		return out
+	}
+	out := make([]string, 0, len(model.WorkClasses))
+	for _, c := range model.WorkClasses {
+		out = append(out, string(c))
+	}
+	return out
+}
+
+func wordWorkClasses(r *classify.Rules) []string {
+	seen := map[model.Class]bool{}
+	for _, c := range r.Words {
+		seen[c] = true
+	}
+	var out []string
+	for _, c := range model.AllClasses {
+		if seen[c] && c.IsWork() {
+			out = append(out, string(c))
+		}
+	}
+	return out
+}
+
 func parseArg(a string) (Item, error) {
 	f := strings.Split(a, ":")
 	switch len(f) {
 	case 1:
 		if !model.IsClass(f[0]) {
-			return Item{}, fmt.Errorf("모르는 분류 %q", f[0])
+			return Item{}, &ArgError{Arg: a, Bad: f[0]}
 		}
 		return Item{Name: f[0], Class: model.Class(f[0]), Size: "M"}, nil
 	case 2:
@@ -50,12 +115,13 @@ func parseArg(a string) (Item, error) {
 			return Item{Name: f[0], Class: model.Class(f[0]), Size: strings.ToUpper(f[1])}, nil
 		}
 		if !model.IsClass(f[1]) {
-			return Item{}, fmt.Errorf("모르는 분류 %q", f[1])
+			// 둘 다 분류가 아니면 어느 칸을 찍을지는 뒤 칸이 크기인지로 가른다 (ArgError.Lead).
+			return Item{}, &ArgError{Arg: a, Bad: f[1], Lead: f[0]}
 		}
 		return Item{Name: f[0], Class: model.Class(f[1]), Size: "M"}, nil
 	case 3:
 		if !model.IsClass(f[1]) {
-			return Item{}, fmt.Errorf("모르는 분류 %q", f[1])
+			return Item{}, &ArgError{Arg: a, Bad: f[1], SizeTok: f[2]}
 		}
 		return Item{Name: f[0], Class: model.Class(f[1]), Size: strings.ToUpper(f[2])}, nil
 	}

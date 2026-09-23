@@ -220,3 +220,14 @@ func TestBuildClassChain(t *testing.T) {
 		t.Fatalf("묶음 수 = %d, 바란 값 2", len(gs))
 	}
 }
+
+// 서브 포함 벽시계는 본줄과 서브 구간을 한 번에 합집합한다. 겹친 곳은 한 번만 센다.
+func TestGroupWithAgentUnionsMainAndAgent(t *testing.T) {
+	a := task("aaaa1111", "s1", 0, 5, model.ClassBuild)
+	a.Agents = []model.Agent{{AgentID: "sub1", Start: at(1), End: at(20)}}
+	b := task("bbbb2222", "s1", 6, 5, model.ClassBuild)
+	gs := Build([]model.Task{a, b}, nil, Key{Mode: ModeGap, Gap: 30 * time.Minute})
+	if gs[0].WithAgentMs != 20*60000 {
+		t.Fatalf("서브 포함 = %d ms, 바란 값 20분 (0~20 합집합)", gs[0].WithAgentMs)
+	}
+}
