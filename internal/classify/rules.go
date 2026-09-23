@@ -49,6 +49,8 @@ type Rules struct {
 	ContStop  []string // 이어짐을 끊는 낱말
 	ContMax   int      // 앞 작업 끝에서 이 분 안쪽일 때만 이어짐
 	GapMax    int      // 자동 소단계 묶기의 간격 컷 (분)
+	SubMax    int      // estimate 표본에서 서브 구간이 묶음·작업 하나에 더할 수 있는 상한 (분)
+	subSeen   bool     // rules.txt 에 sub 줄이 있었나 (빠진 종류 알림용)
 }
 
 func newRules() *Rules {
@@ -64,6 +66,7 @@ func newRules() *Rules {
 		ShellMax:  2,
 		ContMax:   10,
 		GapMax:    30,
+		SubMax:    120,
 	}
 	for _, n := range toolSetNames {
 		r.ToolSets[n] = map[string]bool{}
@@ -77,10 +80,11 @@ const (
 	KindRun   = "runpre·runin"
 	KindChore = "chore"
 	KindCont  = "contfirst·contstop·cont·gap"
+	KindSub   = "sub"
 )
 
 // KindOrder 는 종류를 보여 주고 덧붙이는 차례다.
-var KindOrder = []string{KindTool, KindRun, KindChore, KindCont}
+var KindOrder = []string{KindTool, KindRun, KindChore, KindCont, KindSub}
 
 // MissingKinds 는 rules.txt 에 아예 없는 새 규칙 종류를 알려 준다.
 // rules.txt 는 사람의 정본이라 판이 올라도 안 덮으므로, 옛 파일을 쓰면 규칙이 조용히 꺼진다.
@@ -104,6 +108,9 @@ func (r *Rules) MissingKinds() []string {
 	if len(r.ContFirst) == 0 && len(r.ContStop) == 0 {
 		out = append(out, KindCont)
 	}
+	if !r.subSeen {
+		out = append(out, KindSub)
+	}
 	return out
 }
 
@@ -123,7 +130,7 @@ func (r *Rules) Set(name string) map[string]bool {
 // DefaultRulesText 는 rules.txt 가 없을 때 처음 한 번 만들어 주는 내용이다.
 // 종류별 덩어리는 kindDefaults 에서 가져다 쓰므로 「빠진 종류 덧붙이기」와 어긋날 수 없다.
 var DefaultRulesText = defaultHead + defaultToolLines + "\n" + defaultRunLines + "\n" +
-	defaultChoreLines + "\n" + defaultContLines + "\n" + defaultTail
+	defaultChoreLines + "\n" + defaultContLines + "\n" + defaultSubLines + "\n" + defaultTail
 
 // kindDefaults 는 그 종류가 rules.txt 에 한 줄도 없을 때 더해 줄 기본 줄이다.
 var kindDefaults = map[string]string{
@@ -131,6 +138,7 @@ var kindDefaults = map[string]string{
 	KindRun:   defaultRunLines,
 	KindChore: defaultChoreLines,
 	KindCont:  defaultContLines,
+	KindSub:   defaultSubLines,
 }
 
 const defaultToolLines = `tool	쓰기	Write
@@ -157,6 +165,10 @@ runpre	## Context Usage
 runpre	/
 runpre	Agent 도구로
 runin	loop wakeup
+`
+
+// defaultSubLines 는 estimate 표본의 서브 구간 상한이다. 승인 대기로 몇 시간 산 갈래가 p80 을 끌어올리는 것을 막는다.
+const defaultSubLines = `sub	max	120
 `
 
 const defaultChoreLines = `chore	커밋
@@ -226,6 +238,7 @@ const defaultHead = `# effort 분류 규칙. 탭으로 나눈다. # 은 주석.
 # contstop  <낱말>             제목에 이것이 있으면 이어가지 않는다 (새 주제·잡담)
 # cont      max     <분>       앞 작업 끝에서 이 분 안쪽일 때만 이어간다
 # gap       max     <분>       자동 소단계 묶기의 간격 컷
+# sub       max     <분>       estimate 표본에서 서브에이전트 구간이 묶음·작업 하나에 더할 수 있는 상한
 
 word	조사	조사
 word	조사	확인
@@ -352,7 +365,7 @@ var minFields = map[string]int{
 	"word": 3, "agent": 3, "size": 3, "seed": 5, "human": 3,
 	"min": 3, "blend": 3, "tool": 3, "shell": 3,
 	"runpre": 2, "runin": 2, "chore": 2,
-	"contfirst": 2, "contstop": 2, "cont": 3, "gap": 3,
+	"contfirst": 2, "contstop": 2, "cont": 3, "gap": 3, "sub": 3,
 }
 
 func applyRuleLine(out *Rules, f []string, n int) error {
@@ -396,6 +409,16 @@ func applyRuleLine(out *Rules, f []string, n int) error {
 		return setNamedInt(&out.ContMax, f, "max", n)
 	case "gap":
 		return setNamedInt(&out.GapMax, f, "max", n)
+	case "sub":
+		if err := setNamedInt(&out.SubMax, f, "max", n); err != nil {
+			return err
+		}
+		// 0 이면 서브 구간이 통째로 빠져 옛 본줄 표본과 조용히 같아진다. 끄려면 --metric wall 을 쓴다.
+		if out.SubMax < 1 {
+			return fmt.Errorf("rules.txt %d번째 줄: sub max 는 1 이상이어야 합니다 (%s)", n, f[2])
+		}
+		out.subSeen = true
+		return nil
 	case "size":
 		v, err := strconv.ParseFloat(f[2], 64)
 		if err != nil {

@@ -170,17 +170,51 @@ func withAgent(c model.Class, n int, wallMin, withMin int64) []Sample {
 	return out
 }
 
-// 근거 칸은 표본 단위·본줄 중앙·서브 포함 중앙을 같이 찍는다.
-func TestEstimateSourceShowsSampleMedians(t *testing.T) {
+// 기본(total) 표본은 본줄 ∪ 서브 합집합이다. 근거 칸은 서브 포함 중앙이 앞, 본줄 중앙이 괄호.
+func TestEstimateTotalIsDefaultAndUsesWithAgent(t *testing.T) {
 	opt := DefaultOptions()
+	if opt.Metric != MetricTotal {
+		t.Fatalf("기본 metric = %q, 바란 값 total", opt.Metric)
+	}
 	e := New(rules(t), withAgent(model.ClassBuild, 20, 2, 5), opt)
 	r := e.Estimate(Item{Name: "a", Class: model.ClassBuild, Size: "M"}, opt)
-	want := "실측 n=20 · 본줄 묶음 중앙 2.0분 (서브 포함 5.0분)"
+	want := "실측 n=20 · 서브 포함 묶음 중앙 5.0분 (본줄 2.0분)"
 	if r.Source != want {
 		t.Fatalf("근거 = %q, 바란 값 %q", r.Source, want)
 	}
-	if r.Unit != UnitGroup || r.SampleN != 20 || r.SampleP50Ms != 2*60000 || r.WithAgentP50Ms != 5*60000 {
+	if r.P50Ms != 5*60000 {
+		t.Fatalf("예상 = %d ms, 바란 값 5분 (서브 포함 표본)", r.P50Ms)
+	}
+	if r.Unit != UnitGroup || r.SampleN != 20 || r.MainlineP50Ms != 2*60000 || r.WithAgentP50Ms != 5*60000 {
 		t.Fatalf("JSON 칸 = %+v", r)
+	}
+}
+
+// --metric wall 은 옛 동작 — 본줄만 표본, 서브 포함은 괄호 참고값.
+func TestEstimateWallKeepsMainline(t *testing.T) {
+	opt := DefaultOptions()
+	opt.Metric = MetricWall
+	e := New(rules(t), withAgent(model.ClassBuild, 20, 2, 5), opt)
+	r := e.Estimate(Item{Name: "a", Class: model.ClassBuild, Size: "M"}, opt)
+	if r.Source != "실측 n=20 · 본줄 묶음 중앙 2.0분 (서브 포함 5.0분)" || r.P50Ms != 2*60000 {
+		t.Fatalf("근거 = %q · 예상 %d", r.Source, r.P50Ms)
+	}
+}
+
+// 서브 구간 기여는 표본 하나당 rules 의 sub max 분으로 자른다. 걸린 수를 센다.
+func TestEstimateSubMaxCapsAgentShare(t *testing.T) {
+	rl := rules(t)
+	rl.SubMax = 10
+	opt := DefaultOptions()
+	s := append(withAgent(model.ClassBuild, 3, 2, 200), withAgent(model.ClassBuild, 2, 2, 5)...)
+	e := New(rl, s, opt)
+	r := e.Estimate(Item{Name: "a", Class: model.ClassBuild, Size: "M"}, opt)
+	// 200분 셋은 2+10=12분, 5분 둘은 그대로 → 중앙 12분
+	if r.WithAgentP50Ms != 12*60000 {
+		t.Fatalf("서브 포함 중앙 = %d ms, 바란 값 12분", r.WithAgentP50Ms)
+	}
+	if r.Capped != 3 || e.Capped(model.ClassBuild) != 3 {
+		t.Fatalf("상한 걸림 = %d, 바란 값 3", r.Capped)
 	}
 }
 
@@ -189,36 +223,36 @@ func TestEstimateSourceSeedAndTaskUnit(t *testing.T) {
 	opt.Unit = UnitTask
 	e := New(rules(t), withAgent(model.ClassBuild, 3, 1, 4), opt)
 	r := e.Estimate(Item{Name: "a", Class: model.ClassBuild, Size: "M"}, opt)
-	if r.Source != "시드 (n=3) · 본줄 작업 중앙 1.0분 (서브 포함 4.0분)" {
+	if r.Source != "시드 (n=3) · 서브 포함 작업 중앙 4.0분 (본줄 1.0분)" {
 		t.Fatalf("근거 = %q", r.Source)
 	}
 	// 실측 ×2 꼬리는 중앙값 앞에 붙는다 — 중앙값은 배율을 안 탄 표본 값이다.
 	e2 := New(rules(t), withAgent(model.ClassMeasure, 3, 1, 4), opt)
 	r2 := e2.Estimate(Item{Name: "b", Class: model.ClassMeasure, Size: "M"}, opt)
-	if r2.Source != "시드 (n=3) ×2(실측) · 본줄 작업 중앙 1.0분 (서브 포함 4.0분)" {
+	if r2.Source != "시드 (n=3) ×2(실측) · 서브 포함 작업 중앙 4.0분 (본줄 1.0분)" {
 		t.Fatalf("근거 = %q", r2.Source)
 	}
 }
 
-// 표본이 없으면 중앙값을 안 찍는다. 서브 포함 중앙이 없거나 본줄 중앙과 같으면 괄호를 뺀다.
-// 순수시간에는 서브 포함이 없다.
+// 표본이 없으면 중앙값을 안 찍는다. 두 중앙이 같으면 괄호를 뺀다. 순수시간에는 서브 포함이 없다.
 func TestEstimateSourceOmitsMissingOrSame(t *testing.T) {
 	opt := DefaultOptions()
 	e := New(rules(t), nil, opt)
 	r := e.Estimate(Item{Name: "a", Class: model.ClassBuild, Size: "M"}, opt)
-	if r.Source != "시드 (n=0)" || r.SampleP50Ms != 0 {
+	if r.Source != "시드 (n=0)" || r.MainlineP50Ms != 0 {
 		t.Fatalf("근거 = %q · %+v", r.Source, r)
 	}
+	// 서브가 없는 표본 — 서브 포함 = 본줄이라 괄호가 없다.
 	e2 := New(rules(t), samplesOf(model.ClassBuild, 3, 2), opt)
-	if got := e2.Estimate(Item{Class: model.ClassBuild, Size: "M"}, opt).Source; got != "시드 (n=3) · 본줄 묶음 중앙 2.0분" {
+	if got := e2.Estimate(Item{Class: model.ClassBuild, Size: "M"}, opt).Source; got != "시드 (n=3) · 서브 포함 묶음 중앙 2.0분" {
 		t.Fatalf("서브 없음 근거 = %q", got)
 	}
-	opt.Metric = "pure"
+	opt.Metric = MetricPure
 	e3 := New(rules(t), withAgent(model.ClassBuild, 3, 2, 5), opt)
 	if got := e3.Estimate(Item{Class: model.ClassBuild, Size: "M"}, opt).Source; got != "시드 (n=3) · 순수 묶음 중앙 2.0분" {
 		t.Fatalf("순수 근거 = %q", got)
 	}
-	opt.Metric = "wall"
+	opt.Metric = MetricWall
 	e4 := New(rules(t), withAgent(model.ClassBuild, 3, 2, 2), opt)
 	if got := e4.Estimate(Item{Class: model.ClassBuild, Size: "M"}, opt).Source; got != "시드 (n=3) · 본줄 묶음 중앙 2.0분" {
 		t.Fatalf("서브 포함이 본줄과 같은데 괄호가 붙었다 = %q", got)
@@ -232,5 +266,47 @@ func TestSamplesFromTasksWithAgent(t *testing.T) {
 	s := SamplesFromTasks([]model.Task{tk})
 	if s[0].WithAgentMs != 6*60000 {
 		t.Fatalf("서브 포함 = %d", s[0].WithAgentMs)
+	}
+}
+
+// 서브 몫이 상한과 딱 같으면 자르지 않았으니 걸림 수에 안 든다.
+func TestEstimateSubMaxBoundaryNotCapped(t *testing.T) {
+	r := rules(t)
+	r.SubMax = 10
+	e := New(r, withAgent(model.ClassResearch, 3, 2, 12), DefaultOptions())
+	row := e.Estimate(Item{Class: model.ClassResearch, Size: "M"}, DefaultOptions())
+	if row.Capped != 0 || row.WithAgentP50Ms != 12*60000 {
+		t.Fatalf("경계 : Capped=%d WithAgent=%d, 바란 값 0 · 12분", row.Capped, row.WithAgentP50Ms)
+	}
+}
+
+// 본줄이 0 인 표본(서브만 돈 묶음)은 total 표본에는 들지만 본줄 중앙에는 0 으로 끼지 않는다.
+func TestEstimateMainlineSkipsZeroWall(t *testing.T) {
+	s := append(withAgent(model.ClassResearch, 2, 4, 4), withAgent(model.ClassResearch, 1, 0, 30)...)
+	e := New(rules(t), s, DefaultOptions())
+	row := e.Estimate(Item{Class: model.ClassResearch, Size: "M"}, DefaultOptions())
+	if row.MainlineP50Ms != 4*60000 {
+		t.Fatalf("본줄 중앙 = %d, 바란 값 4분 (0 이 끼면 안 된다)", row.MainlineP50Ms)
+	}
+}
+
+// actual 도 같은 자르기를 쓴다.
+func TestTotalMsCapsSubShare(t *testing.T) {
+	cases := []struct {
+		wall, with int64
+		sub        int
+		want       int64
+		hit        bool
+	}{
+		{2, 300, 120, 122, true},
+		{2, 12, 10, 12, false},
+		{5, 0, 120, 5, false},
+		{0, 30, 120, 30, false},
+	}
+	for _, c := range cases {
+		got, hit := TotalMs(c.wall*60000, c.with*60000, c.sub)
+		if got != c.want*60000 || hit != c.hit {
+			t.Errorf("TotalMs(%d,%d,%d) = %d,%v 바란 값 %d분,%v", c.wall, c.with, c.sub, got, hit, c.want, c.hit)
+		}
 	}
 }

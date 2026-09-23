@@ -29,7 +29,7 @@ func cmdActual(args []string) error {
 	session := fs.String("session", "", "세션 하나만")
 	keyStr := fs.String("group", "", "묶기 열쇠 : mark|gap:30m|class|session|none")
 	match := fs.String("match", "name", "name|order")
-	metric := fs.String("metric", "wall", "wall|pure")
+	metric := fs.String("metric", estimate.MetricTotal, "total(본줄∪서브)|wall(본줄만)|pure(턴 합)")
 	wide := fs.Bool("wide", false, "화면 정렬 표")
 	asJSON := fs.Bool("json", false, "JSON 으로")
 	if err := parseFlags(fs, args); err != nil {
@@ -41,8 +41,8 @@ func cmdActual(args []string) error {
 	if *match != "name" && *match != "order" {
 		return fail(exitUsage, "--match 는 name 또는 order 입니다 : %s", *match)
 	}
-	if *metric != "wall" && *metric != "pure" {
-		return fail(exitUsage, "--metric 은 wall 또는 pure 입니다 : %s", *metric)
+	if *metric != estimate.MetricTotal && *metric != estimate.MetricWall && *metric != estimate.MetricPure {
+		return fail(exitUsage, "--metric 은 total · wall · pure 가운데 하나입니다 : %s", *metric)
 	}
 	items, err := readItems(nil, *from, *home)
 	if err != nil {
@@ -78,18 +78,18 @@ func cmdActual(args []string) error {
 	opt.Metric = *metric
 	e := estimate.New(rules, estimate.SamplesFromGroups(groups), opt)
 
-	rows := matchActual(items, groups, e, opt, *match, *metric)
+	rows := matchActual(items, groups, e, opt, *match, *metric, rules.SubMax)
 	if *asJSON {
 		return printJSON(rows)
 	}
 	printMissingMarks(missing)
-	printActualTable(rows, *wide)
+	printActualTable(rows, *wide, *metric)
 	return nil
 }
 
 // matchActual 은 예상 줄에 묶음을 붙인다. 못 찾은 줄은 비워 둔다 — 없는 값을 지어내지 않는다.
 func matchActual(items []estimate.Item, groups []group.Group, e *estimate.Estimator,
-	opt estimate.Options, match, metric string) []actualRow {
+	opt estimate.Options, match, metric string, subMax int) []actualRow {
 
 	used := map[int]bool{}
 	out := make([]actualRow, 0, len(items))
@@ -107,9 +107,14 @@ func matchActual(items []estimate.Item, groups []group.Group, e *estimate.Estima
 			r.Matched = true
 			r.GroupID = g.ID
 			r.Marked = g.Marked
-			r.RealMs = g.WallMs
-			if metric == "pure" {
+			// 실제 칸도 예상과 같은 잣대로 잰다. total 은 estimate 표본과 같은 서브 몫 상한을 쓴다.
+			switch metric {
+			case estimate.MetricPure:
 				r.RealMs = g.PureMs
+			case estimate.MetricWall:
+				r.RealMs = g.WallMs
+			default:
+				r.RealMs, _ = estimate.TotalMs(g.WallMs, g.WithAgentMs, subMax)
 			}
 			if r.PlanMs > 0 {
 				r.Ratio = float64(r.RealMs) / float64(r.PlanMs)
@@ -132,7 +137,7 @@ func findByName(groups []group.Group, name string, used map[int]bool) int {
 	return -1
 }
 
-func printActualTable(rows []actualRow, wide bool) {
+func printActualTable(rows []actualRow, wide bool, metric string) {
 	fmt.Println(render.DataNotice)
 	head := []string{"소단계", "분류", "예상", "실제", "배율", "묶음"}
 	var planSum, realSum int64
@@ -162,6 +167,7 @@ func printActualTable(rows []actualRow, wide bool) {
 	}
 	fmt.Print(render.Table(head, out, style))
 	fmt.Println("\n배율 = 실제 ÷ 예상. 1 보다 크면 예상이 짧았다. 못 찾은 소단계는 합에서 뺐다.")
+	fmt.Printf("예상·실제 모두 %s 기준이다 (--metric 으로 바꾼다).\n", metric)
 	fmt.Println("못 찾았으면 `effort group --add \"<이름>\" <작업id…>` 로 경계를 표시한 뒤 다시 돌린다.")
 	fmt.Println("어긋난 까닭과 다음에 쓸 눈금은 mem 에 남긴다 (mem add --type howto --scope efforttool).")
 }

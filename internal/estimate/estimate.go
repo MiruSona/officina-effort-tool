@@ -26,11 +26,13 @@ type Row struct {
 	P80Ms   int64
 	Source  string
 	HumanMs int64
-	// 표본이 무엇이었나. 예상값이 작게 나오는 까닭(메인 본줄만 셈)을 표 안에서 보이게 한다.
+	// 표본이 무엇이었나. 두 중앙값은 배율을 안 탄 표본 값이고, 표본 0건이거나 --metric pure 면 0 이다.
+	// 채택한 쪽(total 이면 WithAgent, wall 이면 Mainline)이 P50Ms 의 밑값이다.
 	Unit           string // group | task
 	SampleN        int
-	SampleP50Ms    int64 // 배율을 안 탄 표본 중앙값. 표본 0건이면 0
-	WithAgentP50Ms int64 // 서브에이전트 구간까지 합친 중앙값. 없으면 0
+	MainlineP50Ms  int64 // 메인 본줄만의 중앙값
+	WithAgentP50Ms int64 // 본줄 ∪ 서브 구간(하나당 sub max 로 자름)의 중앙값
+	Capped         int   // 그 분류 표본 가운데 sub max 에 걸린 수
 }
 
 // 표본 단위 이름.
@@ -39,9 +41,16 @@ const (
 	UnitTask  = "task"
 )
 
+// 표본 시간 이름.
+const (
+	MetricTotal = "total" // 본줄 ∪ 서브 구간 (기본). 서브 몫은 하나당 rules 의 sub max 로 자른다
+	MetricWall  = "wall"  // 본줄만 (09-23 전의 기본)
+	MetricPure  = "pure"  // 턴 합
+)
+
 // Options 는 예상 계산에 붙는 손잡이다.
 type Options struct {
-	Metric   string // wall | pure
+	Metric   string // total | wall | pure
 	Unit     string // group | task
 	SinceDay int    // 표본으로 볼 지난 날 수
 	NoX2     bool
@@ -50,9 +59,10 @@ type Options struct {
 	Now      time.Time
 }
 
-// DefaultOptions 는 기본 손잡이다. 표본은 묶음(소단계) 단위가 기본이다 — 사람 소단계와 자릿수가 맞는다.
+// DefaultOptions 는 기본 손잡이다. 표본은 묶음(소단계) 단위, 시간은 본줄 ∪ 서브가 기본이다.
+// 이 저장소는 메인이 맡기고 검토만 해서 일이 서브 구간에서 돈다 — 본줄만 세면 스무 배 작다 (2026-09-23).
 func DefaultOptions() Options {
-	return Options{Metric: "wall", Unit: UnitGroup, SinceDay: 120, Now: time.Now()}
+	return Options{Metric: MetricTotal, Unit: UnitGroup, SinceDay: 120, Now: time.Now()}
 }
 
 // Sample 은 예상 표본 한 건이다. 작업 하나일 수도, 묶음 하나일 수도 있다.
@@ -120,14 +130,17 @@ func KeepSample(c model.Class, warn []string) bool {
 // Estimator 는 캐시 표본과 규칙을 들고 예상을 낸다.
 type Estimator struct {
 	rules   *classify.Rules
-	samples map[model.Class][]float64
-	// withAgent 는 같은 표본의 서브 포함 시간이다. 근거 칸 참고값으로만 쓰고 예상에는 안 든다.
+	samples map[model.Class][]float64 // 채택한 metric 의 값. 밑값은 여기서 낸다
+	// mainline · withAgent 는 같은 표본의 본줄 · 본줄 ∪ 서브 값이다. 근거 칸에 둘 다 찍는다.
+	mainline  map[model.Class][]float64
 	withAgent map[model.Class][]float64
+	capped    map[model.Class]int
 }
 
 // New 는 표본에서 분류별 값을 뽑는다.
 func New(rules *classify.Rules, samples []Sample, opt Options) *Estimator {
-	e := &Estimator{rules: rules, samples: map[model.Class][]float64{}, withAgent: map[model.Class][]float64{}}
+	e := &Estimator{rules: rules, samples: map[model.Class][]float64{},
+		mainline: map[model.Class][]float64{}, withAgent: map[model.Class][]float64{}, capped: map[model.Class]int{}}
 	cut := opt.Now.AddDate(0, 0, -opt.SinceDay)
 	for i := range samples {
 		s := &samples[i]
@@ -142,25 +155,51 @@ func New(rules *classify.Rules, samples []Sample, opt Options) *Estimator {
 		if opt.Metric == "pure" && s.hasWarn(collect.WarnPureClamped) {
 			continue
 		}
-		v := metricOf(s, opt.Metric)
+		total, hit := TotalMs(s.WallMs, s.WithAgentMs, rules.SubMax)
+		v := s.WallMs
+		switch opt.Metric {
+		case MetricPure:
+			v = s.PureMs
+		case MetricTotal:
+			v = total
+		}
 		if v <= 0 {
 			continue
 		}
 		e.samples[s.Class] = append(e.samples[s.Class], float64(v))
 		// 서브 구간은 벽시계 이야기다. 순수시간(턴 합)과 섞으면 뜻이 안 맞아 뺀다.
-		if opt.Metric != "pure" && s.WithAgentMs > 0 {
-			e.withAgent[s.Class] = append(e.withAgent[s.Class], float64(s.WithAgentMs))
+		if opt.Metric == MetricPure {
+			continue
+		}
+		// 서브만 돈 표본(본줄 0)은 본줄 중앙을 0 쪽으로 끌지 않게 뺀다.
+		if s.WallMs > 0 {
+			e.mainline[s.Class] = append(e.mainline[s.Class], float64(s.WallMs))
+		}
+		e.withAgent[s.Class] = append(e.withAgent[s.Class], float64(total))
+		if hit {
+			e.capped[s.Class]++
 		}
 	}
 	return e
 }
 
-func metricOf(s *Sample, metric string) int64 {
-	if metric == "pure" {
-		return s.PureMs
+// TotalMs 는 본줄 ∪ 서브 시간에서 서브 몫(합집합 − 본줄)을 subMaxMin 분으로 자른 값이다.
+// 승인 대기로 몇 시간 산 갈래가 p80 을 끌어올리는 것을 막는다. 서브 값을 모르면(0) 본줄 그대로다.
+// estimate 표본과 actual 실제 칸이 같은 자리에서 잰다. 두 번째 값은 상한에 걸렸는가다.
+func TotalMs(wallMs, withAgentMs int64, subMaxMin int) (int64, bool) {
+	capMs := int64(subMaxMin) * 60000
+	extra := withAgentMs - wallMs
+	if extra <= 0 {
+		return wallMs, false
 	}
-	return s.WallMs
+	if capMs > 0 && extra > capMs {
+		return wallMs + capMs, true
+	}
+	return wallMs + extra, false
 }
+
+// Capped 는 그 분류 표본 가운데 sub max 에 걸린 수다.
+func (e *Estimator) Capped(c model.Class) int { return e.capped[c] }
 
 // SampleCount 는 그 분류의 표본 수다.
 func (e *Estimator) SampleCount(c model.Class) int { return len(e.samples[c]) }
@@ -184,18 +223,8 @@ func (e *Estimator) Estimate(it Item, opt Options) Row {
 	r.P80Ms = int64(p80 * mul * extra)
 	r.Unit = opt.Unit
 	r.SampleN = len(e.samples[it.Class])
-	if r.SampleN > 0 {
-		r.SampleP50Ms = int64(Quantile(e.samples[it.Class], 0.5))
-		src += fmt.Sprintf(" · %s %s 중앙 %s", metricLabel(opt.Metric), unitLabel(opt.Unit), decMinutes(r.SampleP50Ms))
-	}
-	if w := e.withAgent[it.Class]; r.SampleN > 0 && len(w) > 0 {
-		r.WithAgentP50Ms = int64(Quantile(w, 0.5))
-		// 합집합에는 본줄이 늘 들어 있어 서브가 없으면 본줄 중앙과 같다. 같으면 알려 줄 것이 없다.
-		if r.WithAgentP50Ms != r.SampleP50Ms {
-			src += fmt.Sprintf(" (서브 포함 %s)", decMinutes(r.WithAgentP50Ms))
-		}
-	}
-	r.Source = src
+	r.Capped = e.capped[it.Class]
+	r.Source = src + e.medianNote(&r, it.Class, opt)
 	if it.Human > 0 {
 		hm := e.rules.Human[it.Class]
 		if hm == 0 {
@@ -206,11 +235,27 @@ func (e *Estimator) Estimate(it Item, opt Options) Row {
 	return r
 }
 
-func metricLabel(metric string) string {
-	if metric == "pure" {
-		return "순수"
+// medianNote 는 근거 칸 뒤에 붙일 표본 중앙값 글이다. 채택한 값이 앞, 다른 쪽이 괄호다.
+// 두 중앙이 같으면(서브가 없던 표본) 괄호는 알려 줄 것이 없어 뺀다.
+func (e *Estimator) medianNote(r *Row, c model.Class, opt Options) string {
+	if r.SampleN == 0 {
+		return ""
 	}
-	return "본줄"
+	unit := unitLabel(opt.Unit)
+	if opt.Metric == MetricPure {
+		return fmt.Sprintf(" · 순수 %s 중앙 %s", unit, decMinutes(int64(Quantile(e.samples[c], 0.5))))
+	}
+	r.MainlineP50Ms = int64(Quantile(e.mainline[c], 0.5))
+	r.WithAgentP50Ms = int64(Quantile(e.withAgent[c], 0.5))
+	head, headMs, other, otherMs := "서브 포함", r.WithAgentP50Ms, "본줄", r.MainlineP50Ms
+	if opt.Metric == MetricWall {
+		head, headMs, other, otherMs = "본줄", r.MainlineP50Ms, "서브 포함", r.WithAgentP50Ms
+	}
+	out := fmt.Sprintf(" · %s %s 중앙 %s", head, unit, decMinutes(headMs))
+	if otherMs != headMs {
+		out += fmt.Sprintf(" (%s %s)", other, decMinutes(otherMs))
+	}
+	return out
 }
 
 // UnitLabel 은 표본 단위의 사람 이름이다 (묶음 · 작업).

@@ -17,7 +17,7 @@ func cmdEstimate(args []string) error {
 	home := fs.String("home", "", "파생 저장소 자리")
 	from := fs.String("from", "", "표 파일 (- 면 표준입력)")
 	human := fs.Bool("human", false, "사람 눈금 칸도 같이 찍는다")
-	metric := fs.String("metric", "wall", "wall|pure")
+	metric := fs.String("metric", estimate.MetricTotal, "total(본줄∪서브)|wall(본줄만)|pure(턴 합)")
 	unit := fs.String("unit", estimate.UnitGroup, "표본 단위 : group|task")
 	keyStr := fs.String("group", "", "묶기 열쇠 : mark|gap:30m|class|session|none")
 	since := fs.Int("days", 120, "표본으로 볼 지난 날 수")
@@ -28,8 +28,8 @@ func cmdEstimate(args []string) error {
 	if err := parseFlags(fs, args); err != nil {
 		return err
 	}
-	if *metric != "wall" && *metric != "pure" {
-		return fail(exitUsage, "--metric 은 wall 또는 pure 입니다 : %s", *metric)
+	if *metric != estimate.MetricTotal && *metric != estimate.MetricWall && *metric != estimate.MetricPure {
+		return fail(exitUsage, "--metric 은 total · wall · pure 가운데 하나입니다 : %s", *metric)
 	}
 	if *unit != estimate.UnitGroup && *unit != estimate.UnitTask {
 		return fail(exitUsage, "--unit 은 group 또는 task 입니다 : %s", *unit)
@@ -76,7 +76,7 @@ func cmdEstimate(args []string) error {
 	if *asJSON {
 		return printJSON(rows)
 	}
-	printEstimateTable(rows, *human, *wide, *unit, *metric)
+	printEstimateTable(rows, *human, *wide, footer{unit: *unit, metric: *metric, subMax: rules.SubMax})
 	return nil
 }
 
@@ -119,7 +119,13 @@ func readItems(args []string, from, home string) ([]estimate.Item, error) {
 	return items, nil
 }
 
-func printEstimateTable(rows []estimate.Row, human, wide bool, unit, metric string) {
+// footer 는 표 밑 안내에 필요한 값이다.
+type footer struct {
+	unit, metric string
+	subMax       int // rules.txt sub max (분)
+}
+
+func printEstimateTable(rows []estimate.Row, human, wide bool, ft footer) {
 	head := []string{"소단계", "분류", "예상", "범위", "근거"}
 	if human {
 		head = []string{"소단계", "분류", "예상", "범위", "사람눈금", "근거"}
@@ -156,16 +162,40 @@ func printEstimateTable(rows []estimate.Row, human, wide bool, unit, metric stri
 	}
 	fmt.Print(render.Table(head, out, style))
 	fmt.Println("\n합의 범위는 각 칸의 단순 합이다 (분산 합이 아니다 — 사람이 검산할 수 있게). 칸은 반올림이라 합과 ±1분 어긋날 수 있다.")
-	if metric == "pure" {
+	unitName := estimate.UnitLabel(ft.unit)
+	switch ft.metric {
+	case estimate.MetricPure:
 		// 순수시간 표본에는 서브 포함 값이 없다 (estimate.New).
 		fmt.Println("이 값은 순수(턴 합) 시간이다. 사람 시간 칸에 그대로 옮겨 적지 않는다.")
-	} else {
+	case estimate.MetricWall:
 		fmt.Println("이 값은 본줄 시간이다 (서브에이전트·외부 대기·사람 대기는 안 들어간다). 사람 시간 칸에 그대로 옮겨 적지 않는다.")
-		fmt.Printf("이 표본은 메인 세션 본줄 %s이다. 서브에이전트 한 판의 실제 시간은 「서브 포함」 쪽 자릿수에 가깝다.\n", estimate.UnitLabel(unit))
+		fmt.Printf("이 표본은 메인 세션 본줄 %s이다. 서브에이전트 한 판의 실제 시간은 「서브 포함」 쪽 자릿수에 가깝다.\n", unitName)
+	default:
+		capNote := ""
+		if n := cappedSamples(rows); n > 0 {
+			capNote = fmt.Sprintf(" — 이 표의 분류 표본 중 %d건이 상한에 걸렸다", n)
+		}
+		fmt.Printf("이 표본은 메인 본줄과 서브에이전트 구간을 합친 %s 시간이다 (서브 몫은 %s 하나당 최대 %d분%s).\n",
+			unitName, unitName, ft.subMax, capNote)
+		fmt.Println("메인 쪽 사람 대기는 안 들어가지만 서브 구간 안의 대기(승인 등)는 상한까지 들어간다. 사람 시간 칸에 그대로 옮겨 적지 않는다.")
 	}
 	if human && humanBlank {
 		fmt.Println("사람눈금 — : --from 표의 「사람눈금」 열에 분을 적은 줄만 찹니다 (적은 값 × rules.txt human 배율). 인자 꼴에는 적을 자리가 없습니다.")
 	}
+}
+
+// cappedSamples 는 표에 나온 분류들의 상한 걸림 수 합이다. 같은 분류는 한 번만 센다.
+func cappedSamples(rows []estimate.Row) int {
+	seen := map[model.Class]bool{}
+	n := 0
+	for _, r := range rows {
+		if seen[r.Class] {
+			continue
+		}
+		seen[r.Class] = true
+		n += r.Capped
+	}
+	return n
 }
 
 // rulesForHelp 는 인자 오류 안내에 쓸 규칙을 읽는다. 저장소 규칙을 못 읽으면 기본 규칙으로 안내한다.

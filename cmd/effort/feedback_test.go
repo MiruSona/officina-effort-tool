@@ -37,10 +37,32 @@ func TestHumanFooterHiddenWhenFilled(t *testing.T) {
 	}
 }
 
-// 모든 표에 붙는 「본줄 시간」 푸터.
-func TestEstimateMainlineFooter(t *testing.T) {
+// 기본(total) 꼬리말 — 표본이 본줄과 서브를 합친 시간이고 서브 하나당 상한이 있다.
+func TestEstimateTotalFooter(t *testing.T) {
 	home := scanForGroups(t)
 	_, out := capture(t, "estimate", "--home", home, "조사:S")
+	if !strings.Contains(out, "이 표본은 메인 본줄과 서브에이전트 구간을 합친 묶음 시간이다 (서브 몫은 묶음 하나당 최대 120분") ||
+		!strings.Contains(out, "서브 구간 안의 대기(승인 등)는 상한까지 들어간다") {
+		t.Fatalf("합친 시간 안내가 없다 :\n%s", out)
+	}
+	if strings.Contains(out, "이 값은 본줄 시간이다") {
+		t.Fatalf("기본인데 본줄 안내가 나왔다 :\n%s", out)
+	}
+	if !strings.Contains(out, "칸은 반올림이라 합과 ±1분 어긋날 수 있다") {
+		t.Fatalf("반올림 안내가 없다 :\n%s", out)
+	}
+	_, js := capture(t, "estimate", "--home", home, "--json", "조사:S")
+	for _, k := range []string{`"MainlineP50Ms"`, `"WithAgentP50Ms"`, `"Capped"`} {
+		if !strings.Contains(js, k) {
+			t.Fatalf("JSON 에 %s 가 없다 :\n%s", k, js)
+		}
+	}
+}
+
+// --metric wall 은 옛 「본줄 시간」 푸터.
+func TestEstimateMainlineFooter(t *testing.T) {
+	home := scanForGroups(t)
+	_, out := capture(t, "estimate", "--home", home, "--metric", "wall", "조사:S")
 	if !strings.Contains(out, "이 값은 본줄 시간이다") {
 		t.Fatalf("본줄 안내가 없다 :\n%s", out)
 	}

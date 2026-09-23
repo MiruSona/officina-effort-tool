@@ -31,7 +31,7 @@ Claude Code 가 남긴 세션 기록(JSONL)만 읽어 **무슨 일에 시간과 
 ```
 
 - 서브에이전트가 돈 시간은 `show` 의 벽시계 줄 **「서브」 칸**과 **에이전트 표의 「벽시계」 열**에 나온다.
-- 그 값은 **총계에도 `actual` 의 실제값에도 안 든다.** 참고값이다.
+- 그 값은 `show`·`stats`·`list` **총계에는 안 든다.** `estimate`·`actual` 의 기본(`--metric total`)만 서브 몫을 상한까지 넣는다.
   공수 표에 적을 때는 **「서브(참고) N분」** 으로 어디서 온 값인지 밝힌다.
 - **시간을 손으로 적어 넣는 길은 없다.** `group --add` 는 소단계 경계를 표시할 뿐이고,
   `actual` 은 잰 값만 읽는다. 값이 안 나오면 지어내지 말고 **「못 쟀다」고 적는다.**
@@ -94,11 +94,11 @@ EffortTool 폴더 안에서 친다. `build.ps1` 은 **코드(`cmd` · `internal`
 ```
 effort scan     [--home DIR] [--projects DIR] [--project NAME|--all] [--rebuild] [--titles=false] [--quiet]
 effort stats    [--class C] [--since YYYY-MM-DD] [--by class|agent|model|session|group] [--group KEY] [--wide|--json]
-effort estimate [--from FILE|-] [--unit group|task] [--group KEY] [--human] [--metric wall|pure] [--days N] [--no-x2] [--freeze] [소단계...]
+effort estimate [--from FILE|-] [--unit group|task] [--group KEY] [--human] [--metric total|wall|pure] [--days N] [--no-x2] [--freeze] [소단계...]
 effort show     <promptId|접두사> [--json]
 effort list     [--class C] [--since D] [--session ID] [--group KEY] [--limit N] [--sort wall|pure|tok]
 effort group    [--add <이름>] [--class C] [--drop <묶음id>] [--since D] [--session ID] [--group KEY] [작업id...]
-effort actual   [--from FILE|-] [--since D] [--session ID] [--group KEY] [--match name|order] [--metric wall|pure]
+effort actual   [--from FILE|-] [--since D] [--session ID] [--group KEY] [--match name|order] [--metric total|wall|pure]
 effort rules    [--check]
 ```
 
@@ -162,6 +162,7 @@ contfirst	좋아          제목이 이걸로 시작하면 앞 일을 이어가�
 contstop	혹시          제목에 이게 있으면 이어가지 않는다
 cont	max	10            작업 사이가 이 분을 넘으면 이어짐 사슬이 끊긴다
 gap	max	30            자동 소단계 묶기의 간격 컷 (분)
+sub	max	120           estimate 표본에서 서브 구간이 묶음·작업 하나에 더할 상한 (분)
 ```
 
 **새 종류가 늘면 `scan` 이 빠진 종류의 기본 줄만 파일 끝에 더한다.** 날짜 주석을 머리에 달고 덧붙이기만 하며,
@@ -202,17 +203,23 @@ gap	max	30            자동 소단계 묶기의 간격 컷 (분)
 
 ## 예상 공수를 어떻게 내나
 
-1. 캐시에서 그 분류의 지난 작업 시간을 모아 **p20 · p50 · p80** 을 낸다 (선형 보간).
+1. 캐시에서 그 분류의 지난 묶음 시간을 모아 **p20 · p50 · p80** 을 낸다 (선형 보간).
+   시간은 `--metric` 으로 고른다 — **`total`(기본) = 본줄 ∪ 서브에이전트 구간** · `wall` = 본줄만(09-23 전 기본) · `pure` = 턴 합.
+   `total` 은 서브 몫(합집합 − 본줄)을 **표본 하나당 `rules.txt` 의 `sub max` 분(기본 120)** 까지만 더한다 —
+   승인 대기로 몇 시간 산 갈래가 p80 을 끌어올리지 않게. `sub` 줄이 없으면 `scan` 이 덧붙인다.
+   **서브를 넣는 것은 `estimate` 와 `actual` 뿐이다** — 예상과 실제는 같은 잣대여야 해서 `actual` 도 기본이 `total` 이고,
+   실제 칸도 같은 `sub max` 로 자른다. `show`·`stats`·`list` 의 총계는 그대로 본줄만이다(09-04 결정).
+   메인 쪽 사람 대기는 안 들지만 **서브 구간 안의 대기(승인 등)는 상한까지 든다** — 사람 시간이 아니다.
 2. 표본이 `min sample` 보다 적으면 **시드값만**, `blend sample` 이상이면 **실측만**, 사이면 **섞는다.**
    근거 칸에 `시드 (n=3)` · `섞음 n=8` · `실측 n=31` 로 어느 쪽을 썼는지 적는다.
 3. 크기 배율을 곱한다. 분류가 `실측`이면 **×2**(`--no-x2` 로 끔), `--freeze` 면 ×1.5 를 더 건다.
 4. 합의 범위는 각 칸의 단순 합이다 (분산 합이 아니다 — 사람이 검산할 수 있어야 한다).
-5. 근거 칸 뒤에 **표본이 무엇이었나**를 붙인다 — `실측 n=111 · 본줄 묶음 중앙 1.8분 (서브 포함 3.9분)`.
-   중앙값은 배율을 안 탄 표본 값이고, 「서브 포함」은 본줄과 서브에이전트 구간의 합집합 중앙값이다
-   (참고값 — 예상에는 안 든다. 표본이 0건이면 둘 다 뺀다. 서브 포함 중앙이 없거나 본줄 중앙과 같거나
-   `--metric pure` 면 괄호를 뺀다. `--metric pure` 면 표 밑 안내도 「순수(턴 합) 시간」으로 바뀐다).
-   `--json` 에는 `Unit` · `SampleN` · `SampleP50Ms` · `WithAgentP50Ms` 로 나온다.
-   서브에이전트 한 판의 실제 시간은 「서브 포함」 쪽 자릿수에 가깝다 (까닭 : `Docs/Research/2026-09-23-estimate표본단위조사.md`).
+5. 근거 칸 뒤에 **표본이 무엇이었나**를 붙인다 — `실측 n=113 · 서브 포함 묶음 중앙 4.1분 (본줄 1.8분)`.
+   채택한 쪽이 앞, 다른 쪽이 괄호다 (`--metric wall` 이면 `본줄 … (서브 포함 …)`). 중앙값은 배율을 안 탄 표본 값이다.
+   표본이 0건이면 둘 다 빼고, 두 중앙이 같거나 `--metric pure` 면 괄호를 뺀다.
+   표 밑 안내는 `total` 이면 「본줄과 서브를 합친 시간 · 하나당 최대 N분 · 상한에 걸린 수」, `wall`·`pure` 면 그 뜻으로 바뀐다.
+   `--json` 에는 `Unit` · `SampleN` · `MainlineP50Ms`(본줄) · `WithAgentP50Ms`(본줄 ∪ 서브, 상한 적용) · `Capped`(상한에 걸린 수) 로 나온다.
+   까닭 : `Docs/Research/2026-09-23-estimate표본단위조사.md` — 메인이 맡기고 검토만 하면 일이 서브 구간에서 돈다.
 6. 시간 글은 **분 단위 반올림**이다 (1.8분 → 2분). 1분 아래만 「1분 미만」.
 
 ## 알아 둘 것 (실물에서 확인한 것)

@@ -47,6 +47,7 @@ func TestMissingKindsFindsEachKind(t *testing.T) {
 		KindRun:   {"runpre", "runin"},
 		KindChore: {"chore"},
 		KindCont:  {"contfirst", "contstop"},
+		KindSub:   {"sub"},
 	}
 	for kind, prefixes := range strip {
 		text := dropLines(DefaultRulesText, prefixes)
@@ -97,5 +98,32 @@ func TestParseRulesRejectsBadNumbers(t *testing.T) {
 	// 멀쩡한 값은 그대로 지나가야 한다.
 	if _, err := ParseRules(strings.NewReader("min\tsample\t5\nblend\tsample\t12\nsize\tM\t1\n")); err != nil {
 		t.Fatalf("멀쩡한 규칙을 막았다 : %v", err)
+	}
+}
+
+// estimate 표본의 서브 구간 상한. 줄이 없으면 120분이고 빠진 종류로 알린다.
+func TestSubMaxRule(t *testing.T) {
+	r, err := ParseRules(strings.NewReader("chore\t커밋\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.SubMax != 120 {
+		t.Fatalf("기본 상한 = %d, 바란 값 120", r.SubMax)
+	}
+	found := false
+	for _, k := range r.MissingKinds() {
+		if k == KindSub {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("빠진 종류에 sub 가 없다 : %v", r.MissingKinds())
+	}
+	r2, err := ParseRules(strings.NewReader("sub\tmax\t45\n"))
+	if err != nil || r2.SubMax != 45 {
+		t.Fatalf("sub max 45 = %v · %v", r2, err)
+	}
+	if _, err := ParseRules(strings.NewReader("sub\tmax\t0\n")); err == nil {
+		t.Fatal("상한 0 을 안 막았다")
 	}
 }
