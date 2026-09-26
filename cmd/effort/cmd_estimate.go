@@ -49,10 +49,11 @@ func cmdEstimate(args []string) error {
 	if err != nil {
 		return err
 	}
-	rules, err := st.LoadRules()
+	rules, warns, err := st.LoadRules()
 	if err != nil {
 		return fail(exitUsage, "%v", err)
 	}
+	printRuleWarningsShort(warns)
 	if err := estimate.CheckItems(items, rules); err != nil {
 		return fail(exitUsage, "%v", err)
 	}
@@ -202,7 +203,7 @@ func cappedSamples(rows []estimate.Row) int {
 // 오류를 알려 주는 길이라 여기서 또 실패를 내지 않는다.
 func rulesForHelp(home string) *classify.Rules {
 	if st, _, err := openStore(home, ""); err == nil {
-		if r, err := st.LoadRules(); err == nil {
+		if r, _, err := st.LoadRules(); err == nil {
 			return r
 		}
 	}

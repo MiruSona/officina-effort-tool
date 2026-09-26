@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 )
 
 // SchemaVersion 은 캐시 모양 판이다. 바뀌면 전체 재스캔한다.
@@ -52,6 +53,15 @@ func (s *Store) LoadScanState() *ScanState {
 
 // Stale 은 캐시가 옛 판이라 통째로 다시 읽어야 하는지다.
 func (st *ScanState) Stale() bool { return st.Schema != SchemaVersion }
+
+// Newer 는 캐시가 이 exe 보다 새 판 exe 가 쓴 것인지다.
+// 참이면 덮지 않고 멈춘다 — 덮으면 새 exe 가 다시 덮는 핑퐁이 나고, 새 판의 칸이 날아간다.
+// 판 글이 수가 아니면(아주 옛 판·손상) 새것으로 보지 않는다. 그때는 지금처럼 다시 만든다.
+func (st *ScanState) Newer() bool {
+	got, err1 := strconv.Atoi(st.Schema)
+	mine, err2 := strconv.Atoi(SchemaVersion)
+	return err1 == nil && err2 == nil && got > mine
+}
 
 func (s *Store) SaveScanState(st *ScanState) error {
 	st.Schema = SchemaVersion

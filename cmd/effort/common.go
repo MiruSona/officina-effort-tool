@@ -87,10 +87,11 @@ func classLabel(t *model.Task) string {
 // buildGroups 는 정본(groups.txt)과 묶기 열쇠로 소단계 묶음을 만든다.
 // 정본에 적혔는데 캐시에 없는 작업 수도 같이 돌려준다 — 0건이 왜 0건인지 사람이 알아야 한다.
 func buildGroups(st *store.Store, tasks []model.Task, keyStr string) ([]group.Group, int, error) {
-	rules, err := st.LoadRules()
+	rules, warns, err := st.LoadRules()
 	if err != nil {
 		return nil, 0, fail(exitUsage, "%v", err)
 	}
+	printRuleWarningsShort(warns)
 	key, err := group.ParseKey(keyStr, time.Duration(rules.GapMax)*time.Minute)
 	if err != nil {
 		return nil, 0, fail(exitUsage, "%v", err)

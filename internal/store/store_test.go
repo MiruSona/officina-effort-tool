@@ -40,11 +40,11 @@ func TestAppendMissingKindsPreservesUserLines(t *testing.T) {
 	if err := os.WriteFile(s.RulesPath(), []byte(user), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	rules, err := s.LoadRules()
+	rules, _, err := s.LoadRules()
 	if err != nil {
 		t.Fatal(err)
 	}
-	added, err := s.AppendMissingKinds(rules.MissingKinds())
+	added, err := s.AppendMissingKinds(rules.MissingKinds(), "test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestAppendMissingKindsPreservesUserLines(t *testing.T) {
 	if !strings.HasPrefix(string(raw), user) {
 		t.Fatalf("사람이 쓴 줄이 사라졌다 :\n%s", raw)
 	}
-	got, err := s.LoadRules()
+	got, _, err := s.LoadRules()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,11 +83,11 @@ func TestAppendMissingKindsIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := 0; i < 2; i++ {
-		rules, err := s.LoadRules()
+		rules, _, err := s.LoadRules()
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := s.AppendMissingKinds(rules.MissingKinds()); err != nil {
+		if _, err := s.AppendMissingKinds(rules.MissingKinds(), "test"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -95,11 +95,11 @@ func TestAppendMissingKindsIdempotent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rules, err := s.LoadRules()
+	rules, _, err := s.LoadRules()
 	if err != nil {
 		t.Fatal(err)
 	}
-	added, err := s.AppendMissingKinds(rules.MissingKinds())
+	added, err := s.AppendMissingKinds(rules.MissingKinds(), "test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,18 +121,18 @@ func TestAppendMissingKindsNoTrailingNewline(t *testing.T) {
 	if err := os.WriteFile(s.RulesPath(), []byte("word\t조사\t내낱말"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	rules, err := s.LoadRules()
+	rules, _, err := s.LoadRules()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.AppendMissingKinds(rules.MissingKinds()); err != nil {
+	if _, err := s.AppendMissingKinds(rules.MissingKinds(), "test"); err != nil {
 		t.Fatal(err)
 	}
 	raw, _ := os.ReadFile(s.RulesPath())
 	if !strings.HasPrefix(string(raw), "word\t조사\t내낱말\n") {
 		t.Fatalf("줄이 붙어 버렸다 :\n%s", raw)
 	}
-	got, err := s.LoadRules()
+	got, _, err := s.LoadRules()
 	if err != nil {
 		t.Fatal(err)
 	}

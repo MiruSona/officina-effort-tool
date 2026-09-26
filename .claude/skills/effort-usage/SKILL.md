@@ -72,6 +72,10 @@ description: Use when estimating effort before starting work, filling the 실제
 ## rules.txt 는 언제 손대나
 
 - 코드가 새 규칙 종류를 더한 경우는 `scan` 이 빠진 종류의 기본 줄을 알아서 덧붙인다. 할 일 없다.
+- **`주의 : rules.txt N번째 줄 : 이 exe 가 모르는 종류 …` 가 뜨면 이 exe 가 옛 판이다.** 멈추지 않고 그 줄만 건너뛴다.
+  EffortTool 폴더에서 `.\build.ps1` 로 다시 빌드하면 사라진다. rules.txt 에서 그 줄을 지우지 않는다 — 새 exe 가 쓰는 줄이다.
+- 손으로 고친 뒤 확인은 `effort rules --check` 다. 이것만 모르는 종류·이름도 오류(종료 1)로 본다.
+- 코드에서 규칙 뜻을 바꿀 때는 **옛 종류에 새 뜻을 붙이지 않고 새 종류 이름을 만든다** (R8). 옛 exe 가 같은 파일을 읽기 때문이다.
 - **낱말을 손으로 고쳤어도 그냥 `effort scan`** 이면 된다 — scan 이 `rules.txt` 지문을 견줘
   바뀌었으면 캐시 분류를 알아서 통째로 다시 매긴다 (`--rebuild` 는 이제 캐시가 수상할 때만).
 - `groups.txt`(소단계 정본)는 캐시가 아니라 **`--rebuild` 해도 안 날아간다.**

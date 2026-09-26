@@ -2,6 +2,7 @@ package classify
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -328,36 +329,155 @@ min	sample	5
 blend	sample	12
 `
 
-// ParseRules 는 rules.txt 를 읽는다. 모르는 종류가 나오면 줄 번호와 함께 실패한다.
+// ParseRules 는 rules.txt 를 엄격하게 읽는다. 모르는 종류·이름이 나오면 줄 번호와 함께 실패한다.
+// `rules --check` 와 시험이 쓴다. 명령들이 공용 파일을 읽을 때는 ParseRulesOpt(r, false) 를 쓴다.
 func ParseRules(r io.Reader) (*Rules, error) {
+	out, _, err := ParseRulesOpt(r, true)
+	return out, err
+}
+
+// Warning 은 읽다가 건너뛴 줄 하나다 (설계 1절 R1·R2).
+// ~/.effort/ 는 기계에 하나라 더 새 exe 가 더한 줄을 옛 exe 가 볼 수 있다. 그 줄 때문에 멈추지 않으려고 건너뛴다.
+type Warning struct {
+	Line    int    // 파일의 줄 번호
+	What    string // 무엇을 몰랐나 : 종류 · 분류 · 도구 집합
+	Name    string // 모른 이름
+	AddedBy string // 그 줄 위의 자동 추가 주석에 적힌 exe 판 (없으면 빈 값)
+}
+
+// String 은 사람에게 보여 줄 한 줄이다.
+func (w Warning) String() string {
+	return fmt.Sprintf("rules.txt %d번째 줄 : 이 exe 가 모르는 %s %q — 건너뜁니다. %s",
+		w.Line, w.What, w.Name, w.hint())
+}
+
+func (w Warning) hint() string {
+	if w.AddedBy != "" {
+		return fmt.Sprintf("effort %s 가 더한 줄입니다. 이 exe 가 더 옛 판이면 EffortTool 폴더에서 `.\\build.ps1` 로 다시 빌드하세요", w.AddedBy)
+	}
+	return "더 새 exe 가 더한 줄일 수 있습니다 (EffortTool 폴더에서 `.\\build.ps1`)"
+}
+
+// GroupWarnings 는 같은 것을 모른 줄을 한 줄로 묶는다. scan 한 판에 종류별로 한 번만 찍으려는 것이다.
+func GroupWarnings(ws []Warning) []string {
+	type key struct{ what, name string }
+	var order []key
+	first := map[key]Warning{}
+	count := map[key]int{}
+	for _, w := range ws {
+		k := key{w.What, w.Name}
+		if _, ok := first[k]; !ok {
+			order = append(order, k)
+			first[k] = w
+		}
+		count[k]++
+	}
+	out := make([]string, 0, len(order))
+	for _, k := range order {
+		w := first[k]
+		if count[k] == 1 {
+			out = append(out, w.String())
+			continue
+		}
+		out = append(out, fmt.Sprintf("rules.txt %d번째 줄 외 %d줄 : 이 exe 가 모르는 %s %q — 건너뜁니다. %s",
+			w.Line, count[k]-1, w.What, w.Name, w.hint()))
+	}
+	return out
+}
+
+// WarningsOneLine 은 읽기 명령용 한 줄 요약이다. 표 앞에 여러 줄이 섞이지 않게 줄인다.
+func WarningsOneLine(ws []Warning) string {
+	if len(ws) == 0 {
+		return ""
+	}
+	seen := map[string]bool{}
+	var names []string
+	for _, w := range ws {
+		n := fmt.Sprintf("%s %q", w.What, w.Name)
+		if !seen[n] {
+			seen[n] = true
+			names = append(names, n)
+		}
+	}
+	return fmt.Sprintf("주의 : rules.txt 에서 이 exe 가 모르는 줄 %d개(%s)를 건너뛰었습니다. "+
+		"자세히는 effort scan · 옛 exe 면 EffortTool 폴더에서 `.\\build.ps1`", len(ws), strings.Join(names, " · "))
+}
+
+// skipErr 는 「모르는 종류·이름」이라 엄격하지 않으면 건너뛸 수 있는 오류다.
+// 칸이 모자라거나 숫자가 틀린 것은 사람 실수라 이 꼴을 안 쓴다 (R3).
+type skipErr struct {
+	what, name, msg string
+}
+
+func (e *skipErr) Error() string { return e.msg }
+
+// ParseRulesOpt 는 rules.txt 를 읽는다. strict 가 거짓이면 모르는 종류·이름 줄을 경고로 돌리고 건너뛴다.
+// 칸이 모자라거나 숫자가 틀린 줄은 strict 와 상관없이 실패한다.
+func ParseRulesOpt(r io.Reader, strict bool) (*Rules, []Warning, error) {
 	out := newRules()
+	var warns []Warning
+	addedBy := ""
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	n := 0
 	for sc.Scan() {
 		n++
 		line := strings.TrimSpace(sc.Text())
-		if line == "" || strings.HasPrefix(line, "#") {
+		// 판 글은 자동 추가 덩어리 안에서만 쓴다. 다른 주석이나 빈 줄이 나오면 덩어리가 끝난 것이다.
+		if strings.HasPrefix(line, "#") {
+			addedBy, _ = autoHeaderStamp(line)
+			continue
+		}
+		if line == "" {
+			addedBy = ""
 			continue
 		}
 		f := splitFields(line)
 		if err := applyRuleLine(out, f, n); err != nil {
-			return nil, err
+			var se *skipErr
+			if !strict && errors.As(err, &se) {
+				warns = append(warns, Warning{Line: n, What: se.what, Name: se.name, AddedBy: addedBy})
+				continue
+			}
+			return nil, warns, err
 		}
 	}
 	if err := sc.Err(); err != nil {
-		return nil, err
+		return nil, warns, err
 	}
 	// 섞기 구간이 뒤집혀 있으면 실측을 쓸 구간이 사라진다. 두 줄이 다 있을 때만 본다.
 	if out.MinSample > 0 && out.BlendMax > 0 && out.BlendMax <= out.MinSample {
-		return nil, fmt.Errorf("rules.txt : blend sample(%d) 은 min sample(%d) 보다 커야 합니다",
+		return nil, warns, fmt.Errorf("rules.txt : blend sample(%d) 은 min sample(%d) 보다 커야 합니다",
 			out.BlendMax, out.MinSample)
 	}
 	for w := range out.Words {
 		out.WordOrder = append(out.WordOrder, w)
 	}
 	sortByLenDesc(out.WordOrder)
-	return out, nil
+	return out, warns, nil
+}
+
+// AutoHeader 는 빠진 종류를 덧붙일 때 앞에 다는 주석 줄이다 (R7). 더한 exe 판을 적어 둔다.
+// 옛 exe 가 그 아래 줄을 모르면 이 판 글을 읽어 「누가 더한 줄인지」 말해 준다.
+func AutoHeader(day string, kinds []string, stamp string) string {
+	if stamp == "" {
+		stamp = "dev"
+	}
+	return fmt.Sprintf("# --- %s 자동으로 더한 기본값 (%s) · effort %s ---", day, strings.Join(kinds, "·"), stamp)
+}
+
+// autoHeaderStamp 는 AutoHeader 주석에서 exe 판 글을 꺼낸다. 판 글이 없는 옛 주석이면 빈 값으로 되돌린다.
+func autoHeaderStamp(line string) (string, bool) {
+	if !strings.HasPrefix(line, "# ---") || !strings.Contains(line, "자동으로 더한") {
+		return "", false
+	}
+	const mark = "· effort "
+	i := strings.LastIndex(line, mark)
+	if i < 0 {
+		return "", true
+	}
+	rest := strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(line[i+len(mark):]), "---"))
+	return rest, true
 }
 
 // 종류별로 있어야 하는 최소 칸수. runpre·runin·chore 는 값이 하나뿐이다.
@@ -374,7 +494,7 @@ func applyRuleLine(out *Rules, f []string, n int) error {
 	}
 	need, ok := minFields[f[0]]
 	if !ok {
-		return fmt.Errorf("rules.txt %d번째 줄: 모르는 종류 %q", n, f[0])
+		return unknownKind(f[0], n)
 	}
 	if len(f) < need {
 		return fmt.Errorf("rules.txt %d번째 줄: 칸이 모자랍니다 (탭으로 %d칸 이상)", n, need)
@@ -438,7 +558,7 @@ func applyRuleLine(out *Rules, f []string, n int) error {
 			return fmt.Errorf("rules.txt %d번째 줄: 배율이 숫자가 아닙니다 (%s)", n, f[2])
 		}
 		if !model.IsClass(f[1]) {
-			return fmt.Errorf("rules.txt %d번째 줄: 모르는 분류 %q", n, f[1])
+			return unknownClass(f[1], n)
 		}
 		out.Human[model.Class(f[1])] = v
 		return nil
@@ -459,14 +579,23 @@ func applyRuleLine(out *Rules, f []string, n int) error {
 		}
 		return nil
 	}
-	return fmt.Errorf("rules.txt %d번째 줄: 모르는 종류 %q", n, f[0])
+	return unknownKind(f[0], n)
+}
+
+func unknownKind(kind string, n int) error {
+	return &skipErr{what: "종류", name: kind, msg: fmt.Sprintf("rules.txt %d번째 줄: 모르는 종류 %q", n, kind)}
+}
+
+func unknownClass(class string, n int) error {
+	return &skipErr{what: "분류", name: class, msg: fmt.Sprintf("rules.txt %d번째 줄: 모르는 분류 %q", n, class)}
 }
 
 // addToolName 은 도구 집합에 이름 하나를 넣는다. 집합 이름은 넷뿐이다.
 func addToolName(out *Rules, set, name string, n int) error {
 	s, ok := out.ToolSets[set]
 	if !ok {
-		return fmt.Errorf("rules.txt %d번째 줄: 모르는 도구 집합 %q (쓰기·웹·읽기·셸 만 됩니다)", n, set)
+		return &skipErr{what: "도구 집합", name: set,
+			msg: fmt.Sprintf("rules.txt %d번째 줄: 모르는 도구 집합 %q (쓰기·웹·읽기·셸 만 됩니다)", n, set)}
 	}
 	s[name] = true
 	return nil
@@ -474,7 +603,7 @@ func addToolName(out *Rules, set, name string, n int) error {
 
 func addClassKey(m map[string]model.Class, class, key string, n int) error {
 	if !model.IsClass(class) {
-		return fmt.Errorf("rules.txt %d번째 줄: 모르는 분류 %q", n, class)
+		return unknownClass(class, n)
 	}
 	m[key] = model.Class(class)
 	return nil
@@ -485,7 +614,7 @@ func addSeed(out *Rules, f []string, n int) error {
 		return fmt.Errorf("rules.txt %d번째 줄: seed 는 분류·p50·p20·p80 네 칸이 필요합니다", n)
 	}
 	if !model.IsClass(f[1]) {
-		return fmt.Errorf("rules.txt %d번째 줄: 모르는 분류 %q", n, f[1])
+		return unknownClass(f[1], n)
 	}
 	vals := make([]float64, 3)
 	for i := 0; i < 3; i++ {

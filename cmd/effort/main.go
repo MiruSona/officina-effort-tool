@@ -49,6 +49,8 @@ func main() {
 }
 
 func run(args []string) int {
+	// 시험은 run 을 한 프로세스에서 여러 번 부른다. 「한 번만 찍기」 표시를 판마다 되돌린다.
+	rulesWarned = false
 	if len(args) == 0 {
 		printHelp("")
 		return exitUsage
@@ -74,16 +76,7 @@ func run(args []string) int {
 	case "rules":
 		err = cmdRules(rest)
 	case "version", "--version", "-v":
-		stamp := buildCommit
-		if buildTime != "" && stamp != "" {
-			stamp += " · " + buildTime
-		} else if buildTime != "" {
-			stamp = buildTime
-		}
-		if stamp == "" {
-			stamp = "dev"
-		}
-		fmt.Printf("effort %s (%s)\n", Version, stamp)
+		fmt.Printf("effort %s (%s)\n", Version, versionStamp())
 		return exitOK
 	case "help", "--help", "-h":
 		topic := ""
@@ -111,6 +104,34 @@ func run(args []string) int {
 	}
 	fmt.Fprintln(os.Stderr, err.Error())
 	return exitRead
+}
+
+// versionStamp 는 `effort version` 괄호 안 글이다 : 「커밋 · 빌드시각」, 그냥 go build 면 dev.
+func versionStamp() string {
+	stamp := buildCommit
+	if buildTime != "" && stamp != "" {
+		stamp += " · " + buildTime
+	} else if buildTime != "" {
+		stamp = buildTime
+	}
+	if stamp == "" {
+		stamp = "dev"
+	}
+	return stamp
+}
+
+// buildLabel 은 rules.txt 자동 추가 주석에 적을 짧은 판 글이다 (R7). 커밋이 없으면 dev.
+func buildLabel() string {
+	if buildCommit == "" {
+		return "dev"
+	}
+	return buildCommit
+}
+
+// rebuildHint 는 규칙·캐시 때문에 멈출 때 끝에 붙이는 안내다 (설계 1절 ⑵).
+// 가장 흔한 뿌리는 서브모듈만 당기고 exe 를 다시 안 구운 것이다.
+func rebuildHint() string {
+	return fmt.Sprintf("이 exe 는 `%s` 판입니다. 서브모듈을 당긴 뒤라면 EffortTool 폴더에서 `.\\build.ps1` 로 다시 빌드하세요.", versionStamp())
 }
 
 // openStore 는 파생 저장소를 연다. 두 뿌리가 겹치면 바로 실패한다.

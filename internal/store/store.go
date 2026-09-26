@@ -6,10 +6,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/mirusona/officina-effort-tool/internal/classify"
@@ -54,7 +52,8 @@ func (s *Store) EnsureRules() (created bool, err error) {
 
 // AppendMissingKinds 는 빠진 종류의 기본 줄만 rules.txt 끝에 덧붙인다.
 // 기존 줄은 읽기만 하고 고치거나 지우지 않는다. 실제로 더한 종류를 돌려준다.
-func (s *Store) AppendMissingKinds(kinds []string) ([]string, error) {
+// stamp 는 더한 exe 의 판 글이다 (R7). store 가 main 의 빌드 변수를 모르게 인자로 받는다.
+func (s *Store) AppendMissingKinds(kinds []string, stamp string) ([]string, error) {
 	var added []string
 	body := ""
 	for _, k := range kinds {
@@ -73,8 +72,7 @@ func (s *Store) AppendMissingKinds(kinds []string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	head := fmt.Sprintf("\n# --- %s 자동으로 더한 기본값 (%s) ---\n",
-		time.Now().Format("2006-01-02"), strings.Join(added, "·"))
+	head := "\n" + classify.AutoHeader(time.Now().Format("2006-01-02"), added, stamp) + "\n"
 	if len(old) > 0 && old[len(old)-1] != '\n' {
 		head = "\n" + head
 	}
@@ -84,7 +82,19 @@ func (s *Store) AppendMissingKinds(kinds []string) ([]string, error) {
 	return added, nil
 }
 
-func (s *Store) LoadRules() (*classify.Rules, error) {
+// LoadRules 는 rules.txt 를 너그럽게 읽는다. 이 exe 가 모르는 종류·이름 줄은 건너뛰고 경고로 돌려준다.
+// ~/.effort/ 는 exe 여러 판이 나눠 쓰므로, 더 새 exe 가 더한 줄 때문에 옛 exe 가 멈추면 안 된다 (R1·R2).
+func (s *Store) LoadRules() (*classify.Rules, []classify.Warning, error) {
+	f, err := os.Open(s.RulesPath())
+	if err != nil {
+		return nil, nil, err
+	}
+	defer f.Close()
+	return classify.ParseRulesOpt(f, false)
+}
+
+// LoadRulesStrict 는 모르는 종류·이름도 오류로 본다. 사람이 고친 뒤 확인하는 `rules --check` 가 쓴다 (R4).
+func (s *Store) LoadRulesStrict() (*classify.Rules, error) {
 	f, err := os.Open(s.RulesPath())
 	if err != nil {
 		return nil, err

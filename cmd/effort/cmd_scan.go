@@ -54,6 +54,11 @@ func cmdScan(args []string) error {
 	if err := st.EnsureDirs(); err != nil {
 		return fail(exitWrite, "캐시 폴더를 못 만들었습니다 : %v", err)
 	}
+	// 캐시가 더 새 판 exe 것이면 아무것도 쓰기 전에 멈춘다. rules.txt 덧붙이기도 새 exe 몫이다.
+	if early := st.LoadScanState(); early.Newer() {
+		return fail(exitUsage, "캐시 판이 %s 로 이 exe 의 판 %s 보다 새것입니다. 덮어쓰지 않고 멈춥니다 (%s).\n%s",
+			early.Schema, store.SchemaVersion, filepath.Join(st.Home(), "cache"), rebuildHint())
+	}
 	created, err := st.EnsureRules()
 	if err != nil {
 		return fail(exitWrite, "rules.txt 를 못 만들었습니다 : %v", err)
@@ -61,20 +66,20 @@ func cmdScan(args []string) error {
 	if created && !*quiet {
 		fmt.Printf("rules.txt 를 처음 만들었습니다 : %s\n", st.RulesPath())
 	}
-	rules, err := st.LoadRules()
+	rules, warns, err := st.LoadRules()
 	if err != nil {
-		return fail(exitUsage, "%v", err)
+		return fail(exitUsage, "%v\n%s", err, rebuildHint())
 	}
 	var addedKinds []string
 	if missing := rules.MissingKinds(); len(missing) > 0 {
-		addedKinds, err = st.AppendMissingKinds(missing)
+		addedKinds, err = st.AppendMissingKinds(missing, buildLabel())
 		if err != nil {
 			return fail(exitWrite, "rules.txt 에 기본값을 못 더했습니다 : %v", err)
 		}
 		if len(addedKinds) > 0 {
-			rules, err = st.LoadRules()
+			rules, warns, err = st.LoadRules()
 			if err != nil {
-				return fail(exitUsage, "%v", err)
+				return fail(exitUsage, "%v\n%s", err, rebuildHint())
 			}
 			if !*quiet {
 				fmt.Printf("rules.txt 에 %s 기본값을 더했습니다 : %s\n",
@@ -82,6 +87,7 @@ func cmdScan(args []string) error {
 			}
 		}
 	}
+	printRuleWarnings(warns)
 	printMissingKinds(rules, st.RulesPath())
 
 	dirs, err := pickProjectDirs(root, *project, *all)
@@ -175,6 +181,26 @@ func printMissingKinds(rules *classify.Rules, path string) {
 	fmt.Println("      scan 을 돌리면 빠진 종류의 기본값을 파일 끝에 더합니다.")
 }
 
+// printRuleWarnings 는 rules.txt 에서 건너뛴 줄을 종류별로 한 줄씩 stderr 에 찍는다 (R1).
+// scan · rules 처럼 규칙을 다루는 명령이 쓴다. 읽기 명령은 printRuleWarningsShort 로 한 줄만.
+func printRuleWarnings(ws []classify.Warning) {
+	for _, line := range classify.GroupWarnings(ws) {
+		fmt.Fprintf(os.Stderr, "주의 : %s\n", line)
+	}
+}
+
+// rulesWarned 는 이 판에서 규칙 경고를 이미 찍었는지다. 한 명령이 규칙을 두 번 읽어도 한 번만 찍는다.
+var rulesWarned bool
+
+// printRuleWarningsShort 는 읽기 명령용 한 줄 경고다. stdout 표·JSON 을 더럽히지 않게 stderr 로 간다.
+func printRuleWarningsShort(ws []classify.Warning) {
+	if len(ws) == 0 || rulesWarned {
+		return
+	}
+	rulesWarned = true
+	fmt.Fprintln(os.Stderr, classify.WarningsOneLine(ws))
+}
+
 func oldSchemaName(s string) string {
 	if s == "" {
 		return "없음"
@@ -190,12 +216,12 @@ func loadOld(st *store.Store, rebuild bool) ([]model.Task, []model.Session, erro
 	tasks, err := st.ReadTasks()
 	if err != nil && err != store.ErrNoCache {
 		return nil, nil, fail(exitRead,
-			"옛 작업 캐시를 못 읽었습니다 : %v (`effort scan --rebuild --all` 로 다시 만드세요)", err)
+			"옛 작업 캐시를 못 읽었습니다 : %v (`effort scan --rebuild --all` 로 다시 만드세요)\n%s", err, rebuildHint())
 	}
 	sessions, err := st.ReadSessions()
 	if err != nil && err != store.ErrNoCache {
 		return nil, nil, fail(exitRead,
-			"옛 세션 캐시를 못 읽었습니다 : %v (`effort scan --rebuild --all` 로 다시 만드세요)", err)
+			"옛 세션 캐시를 못 읽었습니다 : %v (`effort scan --rebuild --all` 로 다시 만드세요)\n%s", err, rebuildHint())
 	}
 	return tasks, sessions, nil
 }

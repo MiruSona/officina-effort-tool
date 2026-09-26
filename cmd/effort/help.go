@@ -33,7 +33,7 @@ var helpTopic = map[string]string{
 	"list":     "list : 작업을 한 줄씩 본다. --group 을 주면 소단계 묶음을 대신 찍는다.\n--group 일 때는 모든 작업을 묶은 뒤 대표 분류가 일 칸인 묶음만 보여준다 (estimate 표본과 같다).\n그래서 --class 를 같이 주면 뜻이 「대표 분류가 그것인 묶음」으로 바뀐다. --all 은 일 아닌 묶음까지.",
 	"group":    "group : 소단계 경계를 사람이 표시하고 묶음을 본다.\n정본은 ~/.effort/groups.txt 다. 캐시가 아니라 scan --rebuild 로도 안 날아간다.\n--add 는 끝에 덧붙이기만 하고, --drop 은 그 묶음 줄만 뺀다.",
 	"actual":   "actual : 예상 표(--from)와 실제 묶음을 나란히 놓아 배율을 낸다.\n못 찾은 소단계는 — 로 두고 합에서 뺀다. 없는 값을 지어내지 않는다.\n--metric 은 예상·실제를 같이 재는 잣대 : total(기본, 본줄∪서브 · 서브는 묶음 하나당 rules.txt sub max 분까지) · wall(본줄만) · pure(턴 합).",
-	"rules":    "rules : 분류 규칙·배율·시드를 보여준다. --check 는 문법만, --measure 는 실측으로 배율·시드를 다시 잰 줄을 찍는다.",
+	"rules":    "rules : 분류 규칙·배율·시드를 보여준다. --check 는 문법만(모르는 종류도 오류), --measure 는 실측으로 배율·시드를 다시 잰 줄을 찍는다.\n다른 명령은 이 exe 가 모르는 종류·이름 줄을 경고하고 건너뛴다.",
 }
 
 func printHelp(topic string) {

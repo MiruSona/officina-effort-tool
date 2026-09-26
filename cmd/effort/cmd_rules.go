@@ -27,15 +27,21 @@ func cmdRules(args []string) error {
 	if _, err := st.EnsureRules(); err != nil {
 		return fail(exitWrite, "rules.txt 를 못 만들었습니다 : %v", err)
 	}
-	rules, err := st.LoadRules()
-	if err != nil {
-		return fail(exitUsage, "%v", err)
-	}
 	if *check {
+		// --check 만 엄격하다 (R4). 사람이 고친 뒤 확인하는 명령이라 모르는 종류·이름도 오류로 본다.
+		rules, err := st.LoadRulesStrict()
+		if err != nil {
+			return fail(exitUsage, "%v\n이 exe 가 모르는 종류·이름이면 더 새 exe 가 더한 줄일 수 있습니다. %s", err, rebuildHint())
+		}
 		fmt.Printf("rules.txt 문법 이상 없음 : %s\n", st.RulesPath())
 		printMissingKinds(rules, st.RulesPath())
 		return nil
 	}
+	rules, warns, err := st.LoadRules()
+	if err != nil {
+		return fail(exitUsage, "%v", err)
+	}
+	printRuleWarnings(warns)
 	fmt.Printf("규칙 파일 : %s\n\n", st.RulesPath())
 	printWordRules(rules)
 	fmt.Println()

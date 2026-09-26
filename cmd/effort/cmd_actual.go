@@ -63,10 +63,11 @@ func cmdActual(args []string) error {
 	if len(tasks) == 0 {
 		return fail(exitNoData, "고른 조건에 맞는 작업이 0건입니다.")
 	}
-	rules, err := st.LoadRules()
+	rules, warns, err := st.LoadRules()
 	if err != nil {
 		return fail(exitUsage, "%v", err)
 	}
+	printRuleWarningsShort(warns)
 	if err := estimate.CheckItems(items, rules); err != nil {
 		return fail(exitUsage, "%v", err)
 	}
