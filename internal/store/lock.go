@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// Lock 은 scan 이 겹쳐 도는 것을 막는다. scan 만 잡는다.
+// Lock 은 쓰기 명령이 겹쳐 도는 것을 막는다. scan 은 scan.lock, mark 는 marks.lock 을 잡는다.
 type Lock struct {
 	path string
 	body string
@@ -17,9 +17,15 @@ type Lock struct {
 
 const lockGrace = 2 * time.Second
 
-// AcquireLock 은 락을 잡는다. 산 락이 있으면 실패한다.
+// AcquireLock 은 scan 락을 잡는다. 산 락이 있으면 실패한다.
 func AcquireLock(dir string) (*Lock, error) {
-	path := filepath.Join(dir, "scan.lock")
+	return acquireNamed(dir, "scan.lock", "다른 effort scan 이 돌고 있습니다", staleAfter)
+}
+
+// acquireNamed 는 이름 있는 락 하나를 잡는다. 산 락이 있으면 busy 글로 실패한다.
+// stale 은 이 시간보다 오래된 락을 죽은 것으로 보는 기한이다. scan 은 30분, ms 만 잡는 mark 는 몇 초다.
+func acquireNamed(dir, name, busy string, stale time.Duration) (*Lock, error) {
+	path := filepath.Join(dir, name)
 	body := fmt.Sprintf("%d %d", os.Getpid(), processStartMs)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
@@ -37,14 +43,14 @@ func AcquireLock(dir string) (*Lock, error) {
 		if !os.IsExist(err) {
 			return nil, err
 		}
-		if !isStale(path) {
+		if !isStale(path, stale) {
 			break
 		}
 		if err := steal(path); err != nil {
 			break
 		}
 	}
-	return nil, fmt.Errorf("다른 effort scan 이 돌고 있습니다 (%s)", path)
+	return nil, fmt.Errorf("%s (%s)", busy, path)
 }
 
 // steal 은 죽은 락을 가로챈다. 고유 이름으로 옮겨 본 쪽만 지운다.
@@ -58,7 +64,7 @@ func steal(path string) error {
 }
 
 // isStale 은 락이 죽은 것인지 본다. 만든 지 2초 안인 빈 락은 산 것으로 본다.
-func isStale(path string) bool {
+func isStale(path string, stale time.Duration) bool {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return false
@@ -79,7 +85,12 @@ func isStale(path string) bool {
 		return true
 	}
 	// 프로세스가 살았는지는 OS 마다 보는 법이 달라, 적어 둔 시작시각으로만 본다.
-	return time.Since(time.UnixMilli(started)) > staleAfter
+	// 적힌 시작시각과 파일 mtime 중 늦은 쪽으로 본다. 짧은 기한에서 프로세스 시작이 오래전인 경우를 살린다.
+	since := time.Since(time.UnixMilli(started))
+	if m := time.Since(st.ModTime()); m < since {
+		since = m
+	}
+	return since > stale
 }
 
 // 이 프로세스가 뜬 시각. 락 주인이 나인지 가리는 데 쓴다.

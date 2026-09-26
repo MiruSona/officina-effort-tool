@@ -23,14 +23,19 @@ description: Use when estimating effort before starting work, filling the 실제
 
 ## 서브에이전트가 한 일은 누가 재나
 
-**서브에이전트는 자기 판을 못 잰다.** 도는 동안에는 그 세션 기록에 `cost-state` 줄이 없고,
-`scan` 은 그런 세션을 「진행 중」으로 보아 마지막 작업에 `cost-state없음` 표시를 달아 표본에서 뺀다.
-**판이 끝난 뒤 메인 세션이 잰다** — `effort scan` → `effort list --since <날짜>` → `effort show <id>`.
+**서브에이전트는 `effort mark` 로 자기 판을 잰다.**
+시작에 `effort mark start "<번호-이름>"`, 끝에 `effort mark stop` — stop 이 찍는 **「기록 구간」을 「실제」 칸에** 쓴다.
+
+- **이름에 소단계 번호를 넣어 판마다 다르게 짓는다** (예 `2-타일그림`). 같은 이름을 두 갈래가 동시에 쓰면 `묶기모호` 로 기록 구간이 빈다.
+- 도는 중 지금까지 값은 `effort mark show`. stop 에 인자를 빼면 이 판에 묶인 안 닫힌 mark 를 고른다 (못 고르면 id 를 준다).
+- `묶기없음`·`묶기모호` 면 기록 구간이 `—` 다. 찍은 구간을 실제로 옮겨 적지 말고 **「못 쟀다(찍은 구간 N분 참고)」** 로 쓴다.
+- mark 를 안 쓴 판은 **끝난 뒤 메인 세션이 잰다** — `effort scan` → `effort list --since <날짜>` → `effort show <id>`.
+  도는 세션은 `cost-state` 줄이 없어 마지막 작업에 `cost-state없음` 이 붙어 표본에서 빠진다.
 
 - 서브 구간은 `show` 의 **「서브」 칸**과 **에이전트 표의 「벽시계」** 에 나오고 `show`·`stats`·`list` 총계에는 안 든다.
   `estimate`·`actual` 의 기본(`--metric total`)만 서브 몫을 묶음 하나당 `sub max` 분까지 넣는다.
   공수 표에는 **「서브(참고) N분」** 으로 출처를 밝혀 적는다.
-- **시간을 손으로 적어 넣는 길은 없다** (`group --add` 는 경계 표시일 뿐이고 `actual` 은 잰 값만 읽는다).
+- **시간을 손으로 적어 넣는 길은 없다** (`group --add` 는 경계 표시일 뿐이고 `actual` 은 잰 값만 읽는다. `mark` 도 이름만 받는다).
   값이 없으면 지어내지 말고 **「못 쟀다」**고 적는다.
 
 ## 언제 무엇을

@@ -18,11 +18,28 @@ Claude Code 가 남긴 세션 기록(JSONL)만 읽어 **무슨 일에 시간과 
 
 ## 서브에이전트가 한 일 재기
 
-**서브에이전트는 자기 판을 못 잰다.** 돌고 있는 동안에는 그 세션 기록에 아직 `cost-state` 줄이 없고,
-`scan` 은 `cost-state` 줄이 없는 세션을 「진행 중」으로 보아 **그 세션의 마지막 작업 한 건에
-`cost-state없음` 표시를 단다.** 그 표시가 붙은 작업·묶음은 예상 표본에서 빠진다
+**서브에이전트는 `effort mark` 로 자기 판을 잰다.** 시작할 때 `mark start`, 끝날 때 `mark stop` 을 부르고,
+`mark stop` 이 찍는 **「기록 구간」을 공수 표 「실제」 칸에** 쓴다.
+
+```powershell
+.\bin\effort.exe mark start "2-타일그림"   # 이름은 판마다 다르게 — 소단계 번호를 넣는다
+# … 일 …
+.\bin\effort.exe mark stop                 # 이 판에 묶인 mark 하나를 닫고 값을 찍는다 (둘 이상이면 id·이름을 준다)
+.\bin\effort.exe mark show                 # 도는 중에 지금까지 값 (진행중)
+```
+
+- mark 는 **시각만 exe 시계로 찍는다.** 값은 exe 가 **그 판의 기록 파일(transcript)을 찾아 두 시각 사이 본줄 구간**으로 잰다.
+  찾는 법 : 최근 2분 안에 바뀐 세션·서브에이전트 파일 끝쪽에서 `mark start "<이름>"` 을 부른 tool_use 줄을 찾는다.
+  그래서 **같은 이름을 두 갈래가 동시에 쓰면 `묶기모호`** 가 되어 기록 구간이 빈다.
+- 「찍은 구간」(stop − start)은 참고·검산 값이다. 기록 구간과 20% 넘게 다르면 `어긋남`, 기록 구간이 `sub max` 를 넘으면 `상한넘음` 을 단다.
+  stop 을 잊은 채 파일이 30분 넘게 안 바뀌면 그 파일의 마지막 본줄을 끝으로 보고 `끝자동` 을 단다.
+- `marks.txt` 에는 프로젝트 폴더 이름과 파일 이름만 남고 `--projects` 뿌리는 안 남는다. `show`·`stop`·`list` 는 그때 준 뿌리(기본 `~/.claude/projects`)로 다시 잰다.
+- 기록은 `~/.effort/marks.txt` 에 덧붙이기만 한다. `rules.txt`·`groups.txt` 와 같은 정본이라 `scan --rebuild` 로 안 지워진다.
+- mark 값은 `show`·`stats`·`list` 총계와 따로 된 값이다. 총계의 뜻은 안 바뀐다.
+
+mark 를 안 쓴 판은 **끝난 뒤 메인 세션이 잰다.** 도는 동안에는 그 세션 기록에 아직 `cost-state` 줄이 없고,
+`scan` 은 그런 세션을 「진행 중」으로 보아 **마지막 작업 한 건에 `cost-state없음` 표시를 달아** 예상 표본에서 뺀다
 (끝 시각이 없어 시간이 짧게 잡히면 배율을 낮춰 버리기 때문이다).
-그러니 **판이 끝난 뒤 메인 세션이 잰다.**
 
 ```powershell
 .\bin\effort.exe scan                 # 끝난 판의 기록을 캐시에 넣는다
@@ -34,7 +51,8 @@ Claude Code 가 남긴 세션 기록(JSONL)만 읽어 **무슨 일에 시간과 
 - 그 값은 `show`·`stats`·`list` **총계에는 안 든다.** `estimate`·`actual` 의 기본(`--metric total`)만 서브 몫을 상한까지 넣는다.
   공수 표에 적을 때는 **「서브(참고) N분」** 으로 어디서 온 값인지 밝힌다.
 - **시간을 손으로 적어 넣는 길은 없다.** `group --add` 는 소단계 경계를 표시할 뿐이고,
-  `actual` 은 잰 값만 읽는다. 값이 안 나오면 지어내지 말고 **「못 쟀다」고 적는다.**
+  `actual` 은 잰 값만 읽는다. `mark` 도 이름만 받는다 — 시각·길이 인자는 사용법 오류다.
+  값이 안 나오면 지어내지 말고 **「못 쟀다」고 적는다.**
 
 ## 빌드
 
@@ -81,11 +99,12 @@ EffortTool 폴더 안에서 친다. `build.ps1` 은 **코드(`cmd` · `internal`
 | `list` | 작업 목록 한 줄씩. `--group KEY` 를 주면 묶음 표(표본은 `estimate` 와 같다) | 캐시만 읽는다 |
 | `group` | **소단계 경계를 사람이 표시**한다. `--add "<이름>" <작업id…>` · `--drop <묶음id>` | 캐시 + 쓰기 `groups.txt` |
 | `actual` | **예상 표(`--from`)와 실제 묶음을 나란히** 놓아 배율(실제÷예상)을 낸다 | 캐시 + `groups.txt` |
+| `mark` | **서브에이전트가 자기 판을 잰다.** `start "<이름>"` · `stop` · `show` · `list`. 시각만 찍고 값은 기록 파일에서 잰다 | 읽기 기록 파일 끝쪽 · 쓰기 `marks.txt` |
 | `rules` | 분류 규칙 · 크기 배율 · 시드를 보여준다. `--check` 는 문법 검사, `--measure` 는 캐시로 배율·시드를 다시 재서 붙여 넣을 줄만 찍는다 | `rules.txt` (+`--measure` 는 캐시) |
 | `version` · `help` | 판 · 도움말 | — |
 
 `stats` · `estimate` · `show` · `list` · `actual` 은 **절대 쓰기를 안 한다.** 캐시가 없으면 그렇게 말하고 종료 2 다.
-쓰기를 하는 것은 `scan`(캐시·`rules.txt` 덧붙이기)과 `group --add/--drop`(`groups.txt`) 뿐이다.
+쓰기를 하는 것은 `scan`(캐시·`rules.txt` 덧붙이기), `group --add/--drop`(`groups.txt`), `mark start/stop`(`marks.txt` 덧붙이기) 뿐이다.
 
 `actual` 이 짝을 못 찾은 소단계는 `—` 로 두고 합에서 뺀다. **없는 값을 지어내지 않는다.**
 
@@ -131,8 +150,8 @@ Get-Content 소단계.md | .\bin\effort.exe estimate --from - --human
 
 | 코드 | 뜻 |
 | --- | --- |
-| 0 | 성공. `rules.txt` 의 모르는 종류·이름 줄은 **경고하고 건너뛰며 종료 0** |
-| 1 | 사용법 오류 (모르는 옵션, 인자와 `--from` 동시, `rules.txt` 칸·숫자 오류, `rules --check` 의 모르는 종류, **캐시가 이 exe 보다 새 판**) |
+| 0 | 성공. `rules.txt` 의 모르는 종류·이름 줄, `marks.txt` 의 잘못된 줄은 **경고하고 건너뛰며 종료 0** |
+| 1 | 사용법 오류 (모르는 옵션, 인자와 `--from` 동시, `rules.txt` 칸·숫자 오류, `rules --check` 의 모르는 종류, **캐시가 이 exe 보다 새 판**, `mark` 에 시각·길이 인자) |
 | 2 | 낼 것이 없음 (캐시 없음 · 표본 0) — 왜 0건인지 한 줄 말한다 |
 | 3 | 읽기 실패 (경로 감옥 위반 · 폴더 없음 · 권한) |
 | 4 | 쓰기 · 락 실패 |
@@ -256,7 +275,7 @@ sub	max	120           estimate 표본에서 서브 구간이 묶음·작업 하�
 **훅을 설치해 주는 기능은 만들지 않았다** — 이 툴이 쓰는 자리는 `.effort` 뿐이라는 원칙 때문이다.
 
 ```
-공수 재기 : .\Tools\EffortTool\bin\effort.exe scan → estimate <분류:크기…> (예상) · list/show (실제). 서브에이전트 판은 끝난 뒤 메인이 잰다. 규칙 : Tools/EffortTool/.claude/skills/effort-usage/SKILL.md
+공수 재기 : .\Tools\EffortTool\bin\effort.exe scan → estimate <분류:크기…> (예상) · list/show (실제). 서브에이전트는 mark start "<번호-이름>" … mark stop 의 「기록 구간」을 실제 칸에. 규칙 : Tools/EffortTool/.claude/skills/effort-usage/SKILL.md
 ```
 
 **서브에이전트에서는 스킬 목록에 안 뜬다.** `SKILL.md` 를 파일로 직접 읽게 한다.
