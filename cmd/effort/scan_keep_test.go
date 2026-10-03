@@ -48,6 +48,47 @@ func TestScanKeepsOtherProjectsOnFullReread(t *testing.T) {
 	}
 }
 
+// 캐시 판이 바뀐 뒤 처음을 한 프로젝트만 훑으면, 다른 프로젝트는 --all 로 다시 훑으라고 알려야 한다.
+// --all 판에는 그 줄이 필요 없다.
+func TestScanSchemaBumpOneProjectHintsAll(t *testing.T) {
+	home := t.TempDir()
+	all := []string{"scan", "--home", home, "--projects", testdataSessions, "--all"}
+	if code, out := capture(t, all...); code != exitOK {
+		t.Fatalf("첫 스캔 종료 코드 %d\n%s", code, out)
+	}
+	const hint = "effort scan --all 로 다시 훑으세요"
+	oldSchema := func() {
+		p := filepath.Join(home, "cache", "scanstate.json")
+		raw, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		old := strings.Replace(string(raw), `"schema":"`+store.SchemaVersion+`"`, `"schema":"4"`, 1)
+		if err := os.WriteFile(p, []byte(old), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	oldSchema()
+	one := []string{"scan", "--home", home, "--projects", testdataSessions, "--project", "small"}
+	code, out := capture(t, one...)
+	if code != exitOK {
+		t.Fatalf("한 프로젝트 스캔 종료 코드 %d\n%s", code, out)
+	}
+	if !strings.Contains(out, "캐시 판이 4 → "+store.SchemaVersion) || !strings.Contains(out, hint) {
+		t.Fatalf("판 올림 안내에 --all 다시 훑기 줄이 없다 :\n%s", out)
+	}
+
+	oldSchema()
+	code, out = capture(t, all...)
+	if code != exitOK {
+		t.Fatalf("--all 스캔 종료 코드 %d\n%s", code, out)
+	}
+	if strings.Contains(out, hint) {
+		t.Fatalf("--all 판인데 다시 훑으라고 한다 :\n%s", out)
+	}
+}
+
 // 옛 캐시가 깨졌으면 조용히 버리지 말고 멈추고 --rebuild 를 안내해야 한다.
 func TestScanFailsOnBrokenCache(t *testing.T) {
 	home := t.TempDir()

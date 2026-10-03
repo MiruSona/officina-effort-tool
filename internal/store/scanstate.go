@@ -11,7 +11,8 @@ import (
 // 1 → 2 : Task.Tools (도구 이름별 호출 수) 추가.
 // 2 → 3 : 벽시계 뜻이 「본줄 ∪ 서브 구간 합집합」으로 바뀜 · promptSource · 알림 task-id · parentAgentId.
 // 3 → 4 : 벽시계를 본줄만으로 되돌림. 서브 구간은 AgentWallMs 에만 남는다.
-const SchemaVersion = "4"
+// 4 → 5 : Task.WaitMs · Agent.WaitMs (「대기」 표시). 옛 exe 는 Newer() 로 멈춰 핑퐁이 안 난다.
+const SchemaVersion = "5"
 
 // FileState 는 파일 하나를 어디까지 읽었는지다.
 type FileState struct {

@@ -49,7 +49,7 @@ func TestScanStateNewer(t *testing.T) {
 	if err := s.EnsureDirs(); err != nil {
 		t.Fatal(err)
 	}
-	cases := map[string]bool{"99": true, "5": true, SchemaVersion: false, "3": false, "옛판": false}
+	cases := map[string]bool{"99": true, "6": true, SchemaVersion: false, "3": false, "옛판": false}
 	for schema, want := range cases {
 		body := `{"schema":"` + schema + `","files":{}}`
 		if err := os.WriteFile(filepath.Join(s.Home(), "cache", "scanstate.json"), []byte(body), 0o644); err != nil {

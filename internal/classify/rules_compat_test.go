@@ -68,7 +68,7 @@ func TestParseRulesBadKnownLineStillFails(t *testing.T) {
 
 // R7 : 자동 추가 주석의 판 글을 읽어 누가 더한 줄인지 경고에 담는다.
 func TestWarningNamesAddingExe(t *testing.T) {
-	text := "word\t조사\t조사\n\n" + AutoHeader("2026-09-30", []string{"wait"}, "abc1234") + "\nwait\tmin\t3\nwait\tmin\t4\n"
+	text := "word\t조사\t조사\n\n" + AutoHeader("2026-09-30", []string{"nap"}, "abc1234") + "\nnap\tmin\t3\nnap\tmin\t4\n"
 	_, warns, err := ParseRulesOpt(strings.NewReader(text), false)
 	if err != nil {
 		t.Fatal(err)
@@ -91,7 +91,7 @@ func TestWarningNamesAddingExe(t *testing.T) {
 
 // 판 글은 자동 추가 덩어리 안에서만 쓴다. 빈 줄·다른 주석 뒤의 사람 줄에는 안 붙는다.
 func TestWarningAddedByEndsAtBlock(t *testing.T) {
-	text := AutoHeader("2026-09-30", []string{"wait"}, "abc1234") + "\nwait\tmin\t3\n\nzzz\tmax\t1\n" +
+	text := AutoHeader("2026-09-30", []string{"nap"}, "abc1234") + "\nnap\tmin\t3\n\nzzz\tmax\t1\n" +
 		AutoHeader("2026-10-01", []string{"yyy"}, "def5678") + "\n# 사람 주석\nyyy\tmax\t1\n"
 	_, warns, err := ParseRulesOpt(strings.NewReader(text), false)
 	if err != nil {

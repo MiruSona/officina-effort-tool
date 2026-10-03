@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/mirusona/officina-effort-tool/internal/jsonl"
 	"github.com/mirusona/officina-effort-tool/internal/model"
@@ -20,8 +21,13 @@ type AgentResult struct {
 	Total    int
 }
 
-// ReadAgentFile 은 agent-*.jsonl 하나와 짝 meta.json 을 읽는다.
+// ReadAgentFile 은 agent-*.jsonl 하나와 짝 meta.json 을 읽는다. 대기 문턱은 기본값이다.
 func ReadAgentFile(path string) (AgentResult, error) {
+	return ReadAgentFileWith(path, DefaultWaitMin)
+}
+
+// ReadAgentFileWith 는 ReadAgentFile 에 「대기」 문턱을 준다.
+func ReadAgentFileWith(path string, waitMin time.Duration) (AgentResult, error) {
 	var res AgentResult
 	f, err := os.Open(path)
 	if err != nil {
@@ -34,6 +40,7 @@ func ReadAgentFile(path string) (AgentResult, error) {
 	readAgentMeta(path, &res.Agent)
 
 	d := NewDedup()
+	wait := newWaitTracker(waitMin)
 	rd := jsonl.NewReader(f)
 	var line jsonl.Line
 	for rd.Next(&line) {
@@ -55,12 +62,14 @@ func ReadAgentFile(path string) (AgentResult, error) {
 		if line.Type == "assistant" {
 			putAssistant(d, &line)
 		}
+		wait.see(&line)
 	}
 	if err := rd.Err(); err != nil && err != io.EOF {
 		return res, err
 	}
 	res.Agent.Usage = d.SumByModel()
 	res.Agent.Turns = d.Count()
+	res.Agent.WaitMs = wait.Ms()
 	res.Rollback = d.Rollback
 	res.Bad = rd.Bad
 	res.Total = rd.Total

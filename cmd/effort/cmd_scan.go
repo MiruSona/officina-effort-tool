@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/mirusona/officina-effort-tool/internal/classify"
 	"github.com/mirusona/officina-effort-tool/internal/collect"
@@ -110,6 +111,10 @@ func cmdScan(args []string) error {
 	full := *rebuild || state.Stale() || len(addedKinds) > 0 || rulesChanged
 	if state.Stale() {
 		fmt.Printf("캐시 판이 %s → %s 로 바뀌어 전부 다시 읽습니다.\n", oldSchemaName(state.Schema), store.SchemaVersion)
+		if !*all {
+			// 안 훑는 프로젝트의 옛 작업에는 새 판 칸(대기 등)이 없어 「—」로 남는다.
+			fmt.Println("다른 프로젝트의 옛 작업은 새 칸(대기 등)이 「—」로 남습니다 — effort scan --all 로 다시 훑으세요.")
+		}
 	} else if rulesChanged && !*rebuild && len(state.Files) > 0 {
 		fmt.Println("규칙 파일이 바뀌어 전부 다시 읽습니다.")
 	}
@@ -286,7 +291,7 @@ func scanOne(path string, state *store.ScanState, rules *classify.Rules, keepTit
 	if state.Unchanged(key, info.Size(), info.ModTime().UnixMilli()) {
 		return false, nil
 	}
-	res, err := collect.ReadSession(path)
+	res, err := collect.ReadSessionWith(path, time.Duration(rules.WaitMin)*time.Minute)
 	if err != nil {
 		return false, fail(exitRead, "세션을 못 읽었습니다 (%s) : %v", filepath.Base(path), err)
 	}

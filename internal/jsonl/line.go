@@ -1,6 +1,7 @@
 package jsonl
 
 import (
+	"bytes"
 	"encoding/json"
 	"time"
 )
@@ -102,6 +103,31 @@ func (l *Line) ToolNames() []string {
 		out = append(out, b.Name)
 	}
 	return out
+}
+
+// ToolIDs 는 content 의 tool_use id 와 tool_result tool_use_id 만 꺼낸다. 「대기」 짝 맞추기에 쓴다.
+// 입력·결과 본문은 안 읽는다. 도구 블록이 없는 줄은 JSON 을 풀지 않는다.
+func (l *Line) ToolIDs() (uses, results []string) {
+	if !bytes.Contains(l.Message.Content, []byte(`"tool_`)) {
+		return nil, nil
+	}
+	var blocks []struct {
+		Type      string `json:"type"`
+		ID        string `json:"id"`
+		ToolUseID string `json:"tool_use_id"`
+	}
+	if json.Unmarshal(l.Message.Content, &blocks) != nil {
+		return nil, nil
+	}
+	for _, b := range blocks {
+		switch {
+		case b.Type == "tool_use" && b.ID != "":
+			uses = append(uses, b.ID)
+		case b.Type == "tool_result" && b.ToolUseID != "":
+			results = append(results, b.ToolUseID)
+		}
+	}
+	return uses, results
 }
 
 func okToolName(s string) bool {

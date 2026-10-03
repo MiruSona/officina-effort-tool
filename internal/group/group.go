@@ -65,10 +65,12 @@ type Group struct {
 	// AgentWallMs 는 안에 든 서브에이전트 구간의 합집합이다. 총계에 안 넣는 참고값이다.
 	AgentWallMs int64 `json:"agent_wall_ms"`
 	// WithAgentMs 는 본줄과 서브 구간을 한 번에 합집합한 길이다. estimate 근거 칸의 참고값이다.
-	WithAgentMs int64    `json:"with_agent_ms"`
-	PureMs      int64    `json:"pure_ms"`
-	Tokens      int64    `json:"tokens"`
-	Warn        []string `json:"warn"`
+	WithAgentMs int64 `json:"with_agent_ms"`
+	PureMs      int64 `json:"pure_ms"`
+	// WaitMs 는 안에 든 작업 본줄 「대기」의 합이다 (WallMs 를 못 넘게 자른다). 표시만 한다.
+	WaitMs int64    `json:"wait_ms"`
+	Tokens int64    `json:"tokens"`
+	Warn   []string `json:"warn"`
 }
 
 // Build 는 작업을 묶는다. 정본이 먼저 이기고, 남은 작업만 열쇠로 묶는다.
@@ -209,12 +211,17 @@ func fill(g *Group, members []model.Task) {
 			g.End = t.End
 		}
 		g.PureMs += t.PureMs
+		g.WaitMs += t.WaitMs
 		g.Tokens += t.Usage.Sum().Total()
 		if t.Class.IsWork() {
 			byClass[t.Class] += t.WallMs
 		}
 	}
 	g.WallMs = collect.UnionMs(spans)
+	// 다른 세션 작업이 겹친 정본 묶음에서는 합이 합집합 벽시계를 넘을 수 있다. 벽시계 안의 값으로 둔다.
+	if g.WaitMs > g.WallMs {
+		g.WaitMs = g.WallMs
+	}
 	g.AgentWallMs = collect.UnionMs(agentSpans)
 	g.WithAgentMs = collect.UnionMs(append(append([]collect.Span{}, spans...), agentSpans...))
 	if g.Class == "" {

@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/mirusona/officina-effort-tool/internal/store"
 )
 
 // 모르는 종류가 든 rules.txt 로도 scan 은 끝까지 돈다. 경고는 stderr 로.
@@ -56,7 +58,7 @@ func TestScanRefusesNewerCache(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bumped := strings.Replace(string(raw), `"schema":"4"`, `"schema":"99"`, 1)
+	bumped := strings.Replace(string(raw), `"schema":"`+store.SchemaVersion+`"`, `"schema":"99"`, 1)
 	if bumped == string(raw) {
 		t.Fatalf("판 글을 못 바꿨다 : %s", raw)
 	}

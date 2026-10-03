@@ -52,6 +52,8 @@ type Rules struct {
 	GapMax    int      // 자동 소단계 묶기의 간격 컷 (분)
 	SubMax    int      // estimate 표본에서 서브 구간이 묶음·작업 하나에 더할 수 있는 상한 (분)
 	subSeen   bool     // rules.txt 에 sub 줄이 있었나 (빠진 종류 알림용)
+	WaitMin   int      // 도구 한 번의 틈이 이 분을 넘으면 「대기」로 보여 준다
+	waitSeen  bool
 }
 
 func newRules() *Rules {
@@ -68,6 +70,7 @@ func newRules() *Rules {
 		ContMax:   10,
 		GapMax:    30,
 		SubMax:    120,
+		WaitMin:   3,
 	}
 	for _, n := range toolSetNames {
 		r.ToolSets[n] = map[string]bool{}
@@ -82,10 +85,11 @@ const (
 	KindChore = "chore"
 	KindCont  = "contfirst·contstop·cont·gap"
 	KindSub   = "sub"
+	KindWait  = "wait"
 )
 
 // KindOrder 는 종류를 보여 주고 덧붙이는 차례다.
-var KindOrder = []string{KindTool, KindRun, KindChore, KindCont, KindSub}
+var KindOrder = []string{KindTool, KindRun, KindChore, KindCont, KindSub, KindWait}
 
 // MissingKinds 는 rules.txt 에 아예 없는 새 규칙 종류를 알려 준다.
 // rules.txt 는 사람의 정본이라 판이 올라도 안 덮으므로, 옛 파일을 쓰면 규칙이 조용히 꺼진다.
@@ -112,6 +116,9 @@ func (r *Rules) MissingKinds() []string {
 	if !r.subSeen {
 		out = append(out, KindSub)
 	}
+	if !r.waitSeen {
+		out = append(out, KindWait)
+	}
 	return out
 }
 
@@ -131,7 +138,7 @@ func (r *Rules) Set(name string) map[string]bool {
 // DefaultRulesText 는 rules.txt 가 없을 때 처음 한 번 만들어 주는 내용이다.
 // 종류별 덩어리는 kindDefaults 에서 가져다 쓰므로 「빠진 종류 덧붙이기」와 어긋날 수 없다.
 var DefaultRulesText = defaultHead + defaultToolLines + "\n" + defaultRunLines + "\n" +
-	defaultChoreLines + "\n" + defaultContLines + "\n" + defaultSubLines + "\n" + defaultTail
+	defaultChoreLines + "\n" + defaultContLines + "\n" + defaultSubLines + "\n" + defaultWaitLines + "\n" + defaultTail
 
 // kindDefaults 는 그 종류가 rules.txt 에 한 줄도 없을 때 더해 줄 기본 줄이다.
 var kindDefaults = map[string]string{
@@ -140,6 +147,7 @@ var kindDefaults = map[string]string{
 	KindChore: defaultChoreLines,
 	KindCont:  defaultContLines,
 	KindSub:   defaultSubLines,
+	KindWait:  defaultWaitLines,
 }
 
 const defaultToolLines = `tool	쓰기	Write
@@ -170,6 +178,10 @@ runin	loop wakeup
 
 // defaultSubLines 는 estimate 표본의 서브 구간 상한이다. 승인 대기로 몇 시간 산 갈래가 p80 을 끌어올리는 것을 막는다.
 const defaultSubLines = `sub	max	120
+`
+
+// defaultWaitLines 는 「대기」 문턱이다. 총계·표본은 안 바꾸고 show·mark·list --group 에 칸만 더한다.
+const defaultWaitLines = `wait	min	3
 `
 
 const defaultChoreLines = `chore	커밋
@@ -240,6 +252,7 @@ const defaultHead = `# effort 분류 규칙. 탭으로 나눈다. # 은 주석.
 # cont      max     <분>       앞 작업 끝에서 이 분 안쪽일 때만 이어간다
 # gap       max     <분>       자동 소단계 묶기의 간격 컷
 # sub       max     <분>       estimate 표본에서 서브에이전트 구간이 묶음·작업 하나에 더할 수 있는 상한
+# wait      min     <분>       도구 한 번이 이 분을 넘게 걸린 틈을 「대기」로 따로 보여 준다 (총계에서 안 뺀다)
 
 word	조사	조사
 word	조사	확인
@@ -485,7 +498,7 @@ var minFields = map[string]int{
 	"word": 3, "agent": 3, "size": 3, "seed": 5, "human": 3,
 	"min": 3, "blend": 3, "tool": 3, "shell": 3,
 	"runpre": 2, "runin": 2, "chore": 2,
-	"contfirst": 2, "contstop": 2, "cont": 3, "gap": 3, "sub": 3,
+	"contfirst": 2, "contstop": 2, "cont": 3, "gap": 3, "sub": 3, "wait": 3,
 }
 
 func applyRuleLine(out *Rules, f []string, n int) error {
@@ -538,6 +551,16 @@ func applyRuleLine(out *Rules, f []string, n int) error {
 			return fmt.Errorf("rules.txt %d번째 줄: sub max 는 1 이상이어야 합니다 (%s)", n, f[2])
 		}
 		out.subSeen = true
+		return nil
+	case "wait":
+		if err := setNamedInt(&out.WaitMin, f, "min", n); err != nil {
+			return err
+		}
+		// 0 이면 짧은 Read 한 번까지 다 대기가 되어 칸이 뜻을 잃는다.
+		if out.WaitMin < 1 {
+			return fmt.Errorf("rules.txt %d번째 줄: wait min 은 1 이상이어야 합니다 (%s)", n, f[2])
+		}
+		out.waitSeen = true
 		return nil
 	case "size":
 		v, err := strconv.ParseFloat(f[2], 64)

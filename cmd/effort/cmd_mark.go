@@ -340,8 +340,9 @@ func markStopOrShow(args []string, stop bool) error {
 		}
 		m.Stop = now
 	}
-	v := measureMark(m, root, markSubMax(st), now)
-	printMarkValue(m, v)
+	lim := markRuleLimits(st)
+	v := measureMark(m, root, lim, now)
+	printMarkValue(m, v, lim)
 	return nil
 }
 
@@ -399,20 +400,28 @@ func pickMark(marks []store.TimeMark, want string, openOnly bool, root, project,
 type markValue struct {
 	recordMs int64 // 기록 구간. 못 쟀으면 -1
 	markedMs int64 // 찍은 구간
+	waitMs   int64 // 기록 구간 안의 「대기」. 기록 구간을 못 쟀으면 -1
 	end      time.Time
 	flags    []string
 }
 
+// markLimits 는 mark 값에 쓰는 rules.txt 값(분)이다.
+type markLimits struct {
+	subMax  int
+	waitMin int
+}
+
 // measureMark 는 묶인 파일의 본줄로 기록 구간을 재고, exe 시계로 찍은 구간을 잰다.
-func measureMark(m *store.TimeMark, root string, subMax int, now time.Time) markValue {
-	v := markValue{recordMs: -1}
+func measureMark(m *store.TimeMark, root string, lim markLimits, now time.Time) markValue {
+	v := markValue{recordMs: -1, waitMs: -1}
 	if m.File == "" {
 		if m.Bind != "" {
 			v.flags = append(v.flags, m.Bind)
 		}
 	} else {
-		v = measureBound(m, root, now)
+		v = measureBound(m, root, time.Duration(lim.waitMin)*time.Minute, now)
 	}
+	subMax := lim.subMax
 	end := m.Stop
 	if end.IsZero() {
 		end = v.end
@@ -442,8 +451,8 @@ func measureMark(m *store.TimeMark, root string, subMax int, now time.Time) mark
 }
 
 // measureBound 는 묶인 파일을 원본 뿌리 감옥을 거쳐 열고 본줄 구간을 잰다.
-func measureBound(m *store.TimeMark, root string, now time.Time) markValue {
-	v := markValue{recordMs: -1}
+func measureBound(m *store.TimeMark, root string, waitMin time.Duration, now time.Time) markValue {
+	v := markValue{recordMs: -1, waitMs: -1}
 	jail, err := paths.NewJail(root)
 	if err != nil {
 		v.flags = append(v.flags, "파일못엶")
@@ -464,12 +473,15 @@ func measureBound(m *store.TimeMark, root string, now time.Time) markValue {
 			to = time.Time{}
 		}
 	}
-	span, err := collect.MainSpan(f, m.Start, to)
+	span, err := collect.MainSpan(f, m.Start, to, waitMin)
 	if err != nil {
 		v.flags = append(v.flags, "파일못읽음")
 		return v
 	}
 	v.recordMs = span.Ms()
+	if v.recordMs >= 0 {
+		v.waitMs = span.WaitMs
+	}
 	if m.Open() {
 		if autoEnd {
 			v.flags = append(v.flags, flagAutoEnd)
@@ -493,15 +505,26 @@ func hasFlag(flags []string, f string) bool {
 	return false
 }
 
-// markSubMax 는 rules.txt 의 sub max 다. 못 읽으면 기본 규칙 값을 쓴다.
-func markSubMax(st *store.Store) int {
+// markRuleLimits 는 rules.txt 의 sub max · wait min 이다. 못 읽으면 기본 규칙 값을 쓴다.
+func markRuleLimits(st *store.Store) markLimits {
 	if r, _, err := st.LoadRules(); err == nil {
-		return r.SubMax
+		return markLimits{subMax: r.SubMax, waitMin: r.WaitMin}
 	}
 	if r, err := classify.ParseRules(strings.NewReader(classify.DefaultRulesText)); err == nil {
-		return r.SubMax
+		return markLimits{subMax: r.SubMax, waitMin: r.WaitMin}
 	}
-	return 120
+	return markLimits{subMax: 120, waitMin: 3}
+}
+
+// waitText 는 대기 칸 글이다. 기록 구간을 못 쟀으면 「—」, 긴 틈이 없으면 「없음」.
+func waitText(ms int64) string {
+	if ms < 0 {
+		return "—"
+	}
+	if ms == 0 {
+		return "없음"
+	}
+	return render.Minutes(ms)
 }
 
 func spanText(ms int64) string {
@@ -514,7 +537,7 @@ func spanText(ms int64) string {
 	return render.Minutes(ms)
 }
 
-func printMarkValue(m *store.TimeMark, v markValue) {
+func printMarkValue(m *store.TimeMark, v markValue, lim markLimits) {
 	fmt.Printf("mark %s · %s\n", m.ID, m.Name)
 	endText := v.end.Local().Format("2006-01-02 15:04:05")
 	switch {
@@ -530,6 +553,8 @@ func printMarkValue(m *store.TimeMark, v markValue) {
 	}
 	fmt.Printf("기록 구간 : %s   ← 공수 표 「실제」 칸에 쓰는 값\n", spanText(v.recordMs))
 	fmt.Printf("찍은 구간 : %s   (exe 시계 · 참고)\n", spanText(v.markedMs))
+	fmt.Printf("대기 : %s   (도구 한 번이 %d분 넘게 걸린 틈의 합 · 기록 구간에 든 채로 보여 주기만)\n",
+		waitText(v.waitMs), lim.waitMin)
 	if len(v.flags) > 0 {
 		fmt.Printf("표시 : %s\n", strings.Join(v.flags, " · "))
 	}
@@ -564,17 +589,17 @@ func markList(args []string) error {
 	}
 	sort.SliceStable(marks, func(i, j int) bool { return marks[i].Start.Before(marks[j].Start) })
 	now := nowFunc()
-	subMax := markSubMax(st)
-	head := []string{"mark", "이름", "시작", "기록 구간", "찍은 구간", "표시"}
+	lim := markRuleLimits(st)
+	head := []string{"mark", "이름", "시작", "기록 구간", "대기", "찍은 구간", "표시"}
 	var rows [][]string
 	for i := range marks {
 		m := &marks[i]
 		if !cut.IsZero() && m.Start.Before(cut) {
 			continue
 		}
-		v := measureMark(m, root, subMax, now)
+		v := measureMark(m, root, lim, now)
 		rows = append(rows, []string{m.ID, m.Name, m.Start.Local().Format("01-02 15:04"),
-			spanText(v.recordMs), spanText(v.markedMs), strings.Join(v.flags, " · ")})
+			spanText(v.recordMs), waitText(v.waitMs), spanText(v.markedMs), strings.Join(v.flags, " · ")})
 	}
 	if len(rows) == 0 {
 		return fail(exitNoData, "찍은 mark 가 없습니다 (%s)", st.MarksPath())

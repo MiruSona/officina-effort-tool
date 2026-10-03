@@ -48,6 +48,7 @@ func TestMissingKindsFindsEachKind(t *testing.T) {
 		KindChore: {"chore"},
 		KindCont:  {"contfirst", "contstop"},
 		KindSub:   {"sub"},
+		KindWait:  {"wait"},
 	}
 	for kind, prefixes := range strip {
 		text := dropLines(DefaultRulesText, prefixes)
@@ -125,5 +126,34 @@ func TestSubMaxRule(t *testing.T) {
 	}
 	if _, err := ParseRules(strings.NewReader("sub\tmax\t0\n")); err == nil {
 		t.Fatal("상한 0 을 안 막았다")
+	}
+}
+
+// 「대기」 문턱. 줄이 없으면 3분이고 빠진 종류로 알린다 (R5 — 없어도 똑같이 돈다).
+func TestWaitRuleDefault(t *testing.T) {
+	r, err := ParseRules(strings.NewReader("chore\t커밋\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.WaitMin != 3 {
+		t.Fatalf("기본 문턱 = %d, 바란 값 3", r.WaitMin)
+	}
+	found := false
+	for _, k := range r.MissingKinds() {
+		if k == KindWait {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("빠진 종류에 wait 가 없다 : %v", r.MissingKinds())
+	}
+	r2, err := ParseRules(strings.NewReader("wait\tmin\t5\n"))
+	if err != nil || r2.WaitMin != 5 {
+		t.Fatalf("wait min 5 = %v · %v", r2, err)
+	}
+	for _, bad := range []string{"wait\tmin\t0\n", "wait\tmin\tx\n", "wait\tmax\t3\n"} {
+		if _, _, err := ParseRulesOpt(strings.NewReader(bad), false); err == nil {
+			t.Fatalf("%q 를 안 막았다 (아는 종류의 잘못 쓴 줄은 R3 대로 실패)", bad)
+		}
 	}
 }

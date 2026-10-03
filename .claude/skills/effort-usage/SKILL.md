@@ -28,6 +28,8 @@ description: Use when estimating effort before starting work, filling the 실제
 
 - **이름에 소단계 번호를 넣어 판마다 다르게 짓는다** (예 `2-타일그림`). 같은 이름을 두 갈래가 동시에 쓰면 `묶기모호` 로 기록 구간이 빈다.
 - 도는 중 지금까지 값은 `effort mark show`. stop 에 인자를 빼면 이 판에 묶인 안 닫힌 mark 를 고른다 (못 고르면 id 를 준다).
+- stop 이 찍는 **「대기」** 는 기록 구간 안에서 도구 한 번이 3분(`wait min`) 넘게 걸린 틈의 합이다. 실제 칸은 기록 구간 그대로 쓰고,
+  예상과 크게 어긋났으면 「대기 N분 포함」 을 까닭 한 줄로 적는다 (그림 생성·긴 빌드처럼 기다리기만 한 구간).
 - `묶기없음`·`묶기모호` 면 기록 구간이 `—` 다. 찍은 구간을 실제로 옮겨 적지 말고 **「못 쟀다(찍은 구간 N분 참고)」** 로 쓴다.
 - mark 를 안 쓴 판은 **끝난 뒤 메인 세션이 잰다** — `effort scan` → `effort list --since <날짜>` → `effort show <id>`.
   도는 세션은 `cost-state` 줄이 없어 마지막 작업에 `cost-state없음` 이 붙어 표본에서 빠진다.
@@ -73,6 +75,8 @@ description: Use when estimating effort before starting work, filling the 실제
   서브에이전트 구간은 `show`·`list --group` 의 「서브(참고)」 칸에만 나오고 총계에 안 든다.
 - **순수시간** = 턴 시간의 합. 벽시계를 넘으면 벽시계로 자르고 `순수시간잘림` 을 남긴다.
 - **묶음 시간**에는 작업과 작업 **사이의 사람 대기가 안 든다**. 지금은 묶음 안 작업의 본줄 구간만 더한다.
+- **대기** = 도구 한 번이 `rules.txt` 의 `wait min`(기본 3분)을 넘게 걸린 틈의 합 (2026-10-03). `show`·`list --group`·`mark` 에 칸이 있다.
+  **벽시계·표본에서 안 뺀다** — 「예상 40분 ↔ 실제 11분」 같은 어긋남의 까닭을 보는 칸이다.
 
 ## rules.txt 는 언제 손대나
 

@@ -140,6 +140,7 @@ type LiveSpan struct {
 	First    time.Time // from~to 안 첫 본줄
 	Last     time.Time // from~to 안 끝 본줄
 	LastMain time.Time // 파일 전체의 마지막 본줄
+	WaitMs   int64     // from~to 안에서 시작하고 끝난 긴 도구 틈의 합 (「대기」, 기록 구간에서 안 뺌)
 }
 
 // Ms 는 기록 구간 길이다. 본줄이 없으면 -1.
@@ -152,8 +153,10 @@ func (s LiveSpan) Ms() int64 {
 
 // MainSpan 은 두 시각 사이 본줄의 첫~끝 시각과 파일 전체의 마지막 본줄 시각을 준다.
 // 곁줄(대기열·자리 비움 등)은 isMainLine 이 빼므로 끝을 늘리지 않는다. to 가 영 값이면 끝을 안 막는다.
-func MainSpan(r io.Reader, from, to time.Time) (LiveSpan, error) {
+// waitMin 은 「대기」 문턱이다. 구간 안 줄만 보므로 구간 밖에서 시작한 도구 틈은 안 든다.
+func MainSpan(r io.Reader, from, to time.Time, waitMin time.Duration) (LiveSpan, error) {
 	var out LiveSpan
+	wait := newWaitTracker(waitMin)
 	rd := jsonl.NewReader(r)
 	var line jsonl.Line
 	for rd.Next(&line) {
@@ -173,9 +176,11 @@ func MainSpan(r io.Reader, from, to time.Time) (LiveSpan, error) {
 		if ts.After(out.Last) {
 			out.Last = ts
 		}
+		wait.see(&line)
 	}
 	if err := rd.Err(); err != nil && err != io.EOF {
 		return out, err
 	}
+	out.WaitMs = wait.Ms()
 	return out, nil
 }

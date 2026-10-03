@@ -101,6 +101,8 @@ type Agent struct {
 	Turns       int        `json:"turns"`
 	Class       Class      `json:"class"`
 	MetaMissing bool       `json:"meta_missing"`
+	// WaitMs 는 이 갈래 안에서 도구 한 번이 rules.txt wait min 을 넘게 걸린 틈의 합집합이다 (표시만).
+	WaitMs int64 `json:"wait_ms"`
 }
 
 // Task 는 사용자 요청 한 건(promptId 하나)이다.
@@ -117,6 +119,8 @@ type Task struct {
 	MainWallMs  int64 `json:"main_wall_ms"`
 	AgentWallMs int64 `json:"agent_wall_ms"`
 	PureMs      int64 `json:"pure_ms"`
+	// WaitMs 는 본줄에서 도구 한 번이 wait min 을 넘게 걸린 틈의 합집합이다. 벽시계에 든 채로 보여 주기만 한다.
+	WaitMs int64 `json:"wait_ms"`
 	// 프롬프트 출처와 알림 열쇠. 알림 본문 자체는 절대 저장하지 않는다.
 	PromptSource string `json:"prompt_source,omitempty"`
 	NotifyTaskID string `json:"notify_task_id,omitempty"`

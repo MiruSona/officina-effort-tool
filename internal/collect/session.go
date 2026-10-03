@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/mirusona/officina-effort-tool/internal/jsonl"
 	"github.com/mirusona/officina-effort-tool/internal/model"
@@ -39,10 +40,16 @@ type SessionResult struct {
 type taskBuild struct {
 	task model.Task
 	d    *Dedup
+	wait *waitTracker
 }
 
-// ReadSession 은 세션 JSONL 하나와 그 세션의 서브에이전트 폴더를 읽는다.
+// ReadSession 은 세션 JSONL 하나와 그 세션의 서브에이전트 폴더를 읽는다. 대기 문턱은 기본값이다.
 func ReadSession(path string) (SessionResult, error) {
+	return ReadSessionWith(path, DefaultWaitMin)
+}
+
+// ReadSessionWith 는 ReadSession 에 「대기」 문턱(rules.txt wait min)을 준다.
+func ReadSessionWith(path string, waitMin time.Duration) (SessionResult, error) {
 	var res SessionResult
 	f, err := os.Open(path)
 	if err != nil {
@@ -85,7 +92,7 @@ func ReadSession(path string) (SessionResult, error) {
 		}
 		b := builds[cur]
 		if b == nil {
-			b = &taskBuild{d: NewDedup()}
+			b = &taskBuild{d: NewDedup(), wait: newWaitTracker(waitMin)}
 			b.task.PromptID = cur
 			b.task.SessionID = sessionID
 			builds[cur] = b
@@ -100,7 +107,7 @@ func ReadSession(path string) (SessionResult, error) {
 	res.TooLong = rd.TooLong
 	res.Total = rd.Total
 
-	agentsByPrompt, agentRollback, hasSubDir := readSubagents(path)
+	agentsByPrompt, agentRollback, hasSubDir := readSubagents(path, waitMin)
 	res.Session.InProgress = !sawCostState
 
 	for _, id := range order {
@@ -153,6 +160,7 @@ func applyLine(b *taskBuild, line *jsonl.Line) {
 		putAssistant(b.d, line)
 		countTools(t, line)
 	}
+	b.wait.see(line)
 }
 
 // applyUserLine 은 user 줄에서 제목·출처·알림 열쇠를 뽑는다. 알림 본문은 저장하지 않는다.
@@ -202,6 +210,7 @@ func finishTask(b *taskBuild, agents map[string][]model.Agent, noSubagentDir boo
 	t := &b.task
 	t.MainUsage = b.d.SumByModel()
 	t.Turns = b.d.Count()
+	t.WaitMs = b.wait.Ms()
 	t.Usage = model.ModelUsage{}
 	t.Usage.Merge(t.MainUsage)
 	t.Agents = agents[t.PromptID]
@@ -279,7 +288,7 @@ func coverPct(sum, state model.ModelUsage) float64 {
 }
 
 // readSubagents 는 <세션id>/subagents/ 를 읽어 promptId 별로 묶는다.
-func readSubagents(sessionPath string) (map[string][]model.Agent, int, bool) {
+func readSubagents(sessionPath string, waitMin time.Duration) (map[string][]model.Agent, int, bool) {
 	dir := strings.TrimSuffix(sessionPath, ".jsonl")
 	sub := filepath.Join(dir, "subagents")
 	entries, err := os.ReadDir(sub)
@@ -297,7 +306,7 @@ func readSubagents(sessionPath string) (map[string][]model.Agent, int, bool) {
 	}
 	sort.Strings(names)
 	for _, n := range names {
-		r, err := ReadAgentFile(filepath.Join(sub, n))
+		r, err := ReadAgentFileWith(filepath.Join(sub, n), waitMin)
 		if err != nil {
 			continue
 		}
