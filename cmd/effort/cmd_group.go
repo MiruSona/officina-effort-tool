@@ -1,12 +1,15 @@
 package main
 
 import (
+	"flag"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/mirusona/officina-effort-tool/internal/group"
 	"github.com/mirusona/officina-effort-tool/internal/model"
 	"github.com/mirusona/officina-effort-tool/internal/render"
+	"github.com/mirusona/officina-effort-tool/internal/secret"
 	"github.com/mirusona/officina-effort-tool/internal/store"
 )
 
@@ -24,6 +27,12 @@ func cmdGroup(args []string) error {
 	asJSON := fs.Bool("json", false, "JSON 으로")
 	if err := parseFlags(fs, args); err != nil {
 		return err
+	}
+	// --add "" 는 빈 값이라 아래 *add != "" 에 안 걸리고 목록 보기로 빠진다. 옵션을 줬는지로 따로 본다.
+	addSet := false
+	fs.Visit(func(f *flag.Flag) { addSet = addSet || f.Name == "add" })
+	if addSet && strings.TrimSpace(secret.Sanitize(*add)) == "" {
+		return fail(exitUsage, "--add 이름이 비었습니다 : 한 글자 이상 적어 주세요 (effort group --add \"<이름>\" <작업id…>)")
 	}
 	if *add != "" && *drop != "" {
 		return fail(exitUsage, "--add 와 --drop 은 같이 못 씁니다. 하나만 주세요.")

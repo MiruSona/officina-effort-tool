@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -396,6 +397,285 @@ func TestMarkNoArgAmbiguousListsOpen(t *testing.T) {
 		if !m.Open() {
 			t.Fatalf("못 고른 stop 이 mark 를 닫았다 : %+v", m)
 		}
+	}
+}
+
+// 못 쟀을 때 표시를 까닭 글로 푼다. 넷 다 제 까닭이 나오고 표시 이름도 괄호에 남는다.
+func TestMarkFailReasons(t *testing.T) {
+	cases := []struct {
+		flag, want string
+	}{
+		{store.BindNone, "최근 2분 안"},
+		{store.BindAmbiguous, "여럿"},
+		{"파일못엶", "못 엶"},
+		{flagNoMainInSpan, "본줄이 없음"},
+	}
+	for _, c := range cases {
+		got := failReason([]string{flagOpen, c.flag})
+		if !strings.Contains(got, c.want) || !strings.Contains(got, "("+c.flag+")") {
+			t.Fatalf("%s 까닭 = %q", c.flag, got)
+		}
+	}
+	if got := failReason([]string{flagReadFail}); !strings.Contains(got, "읽다가") || !strings.Contains(got, "("+flagReadFail+")") {
+		t.Fatalf("%s 까닭 = %q", flagReadFail, got)
+	}
+	if got := failReason([]string{flagOpen}); got != "" {
+		t.Fatalf("까닭 표시가 없는데 %q", got)
+	}
+	// 진행 중이면 stop 을 말하지 않는다. 닫힌 판은 start~stop 을 말한다.
+	open := failReason([]string{flagOpen, flagNoMainInSpan})
+	if !strings.Contains(open, "아직 start 뒤 본줄이 없음") || strings.Contains(open, "stop") {
+		t.Fatalf("진행 중 까닭 = %q", open)
+	}
+	if closed := failReason([]string{flagNoMainInSpan}); !strings.Contains(closed, "start~stop") {
+		t.Fatalf("닫힌 판 까닭 = %q", closed)
+	}
+}
+
+// 진행 중 mark 는 stop 이 없으니 「stop 뒤 —」. 0 인 앞·뒤는 「없음」.
+func TestMarkBranchLineOpen(t *testing.T) {
+	fx := newMarkFixture(t)
+	m := startBound(t, fx, "16-도는갈래")
+	fx.appendLines(fx.agentPath("a1"), mainLine(m.Start.Add(time.Minute), "assistant"))
+	fx.clock = m.Start.Add(2 * time.Minute)
+	code, so, se := fx.run("show", m.ID)
+	if code != exitOK {
+		t.Fatalf("show 종료 %d\n%s\n%s", code, so, se)
+	}
+	if !strings.Contains(so, "mark 앞 2분 · stop 뒤 — ·") || strings.Contains(so, "stop 뒤 1분 미만") {
+		t.Fatalf("진행 중 갈래 줄이 틀렸다 :\n%s", so)
+	}
+}
+
+// 끝자동 mark 도 stop 이 없으니 「stop 뒤 —」.
+func TestMarkBranchLineAutoEnd(t *testing.T) {
+	fx := newMarkFixture(t)
+	m := startBound(t, fx, "17-잊은갈래")
+	fx.appendLines(fx.agentPath("a1"), mainLine(m.Start.Add(time.Minute), "assistant"))
+	fx.clock = m.Start.Add(2 * time.Hour)
+	_, so, _ := fx.run("show", m.ID)
+	if !strings.Contains(so, "끝자동") || !strings.Contains(so, "stop 뒤 —") {
+		t.Fatalf("끝자동 갈래 줄이 틀렸다 :\n%s", so)
+	}
+}
+
+// 같은 파일의 다른 mark 구간은 「mark 앞」·「stop 뒤」에서 뺀다. 겹친 것은 한 번만, 자기 구간과 겹친 몫은 안 센다.
+func TestBranchSpansSubtractOtherMarks(t *testing.T) {
+	t0 := time.Date(2026, 10, 5, 18, 0, 0, 0, time.Local)
+	at := func(min int) time.Time { return t0.Add(time.Duration(min) * time.Minute) }
+	span := func(a, b int) markSpan { return markSpan{from: at(a), to: at(b)} }
+	min := int64(60 * 1000)
+	cases := []struct {
+		name                  string
+		start, stop, last     int
+		others                []markSpan
+		before, after, other  int64
+		warn                  bool
+	}{
+		{"이어 붙은 것", 10, 12, 13, []markSpan{span(1, 10)}, 1 * min, 1 * min, 9 * min, false},
+		{"틈 3분", 9, 11, 12, []markSpan{span(1, 6)}, 4 * min, 1 * min, 5 * min, true},
+		{"서로 겹친 것", 8, 12, 13, []markSpan{span(1, 10), span(2, 5)}, 1 * min, 1 * min, 7 * min, false},
+		{"뒤에 이어 붙은 것", 2, 4, 15, []markSpan{span(4, 14)}, 2 * min, 1 * min, 10 * min, false},
+	}
+	for _, c := range cases {
+		m := &store.TimeMark{ID: "m1005-aaaa", Start: at(c.start), Stop: at(c.stop), File: "s/agent-x"}
+		v := markValue{end: m.Stop, fileFirst: t0, fileLast: at(c.last), others: c.others}
+		total, before, after, other := branchSpans(m, v)
+		if before != c.before || after != c.after || other != c.other {
+			t.Fatalf("%s : 앞 %d · 뒤 %d · 다른 %d (바란 값 %d · %d · %d)", c.name, before, after, other, c.before, c.after, c.other)
+		}
+		if got := outsideWarn(total, before+after); got != c.warn {
+			t.Fatalf("%s : 경고 %v", c.name, got)
+		}
+		if !strings.Contains(branchTotalText(m, v), fmt.Sprintf("· 다른 mark %s ·", spanText(c.other))) {
+			t.Fatalf("%s : 다른 mark 칸이 없다 : %s", c.name, branchTotalText(m, v))
+		}
+	}
+	// 다른 mark 가 없으면 칸을 안 찍는다.
+	m := &store.TimeMark{ID: "m1005-aaaa", Start: at(2), Stop: at(4), File: "s/agent-x"}
+	if got := branchTotalText(m, markValue{end: m.Stop, fileFirst: t0, fileLast: at(5)}); strings.Contains(got, "다른 mark") {
+		t.Fatalf("다른 mark 가 없는데 칸을 찍었다 : %s", got)
+	}
+}
+
+// 다른 mark 는 같은 파일에 묶인 것만 고른다. 자기 · 다른 파일 · 묶기없음은 빼고, 진행 중은 지금까지.
+func TestOtherMarkSpans(t *testing.T) {
+	now := time.Date(2026, 10, 5, 19, 0, 0, 0, time.UTC)
+	me := store.TimeMark{ID: "m1", Slug: "p", File: "s/agent-a", Start: now.Add(-time.Hour), Stop: now.Add(-50 * time.Minute)}
+	marks := []store.TimeMark{
+		me,
+		{ID: "m2", Slug: "p", File: "s/agent-a", Start: now.Add(-40 * time.Minute), Stop: now.Add(-30 * time.Minute)},
+		{ID: "m3", Slug: "p", File: "s/agent-a", Start: now.Add(-10 * time.Minute)}, // 진행 중
+		{ID: "m4", Slug: "p", File: "s/agent-b", Start: now.Add(-40 * time.Minute), Stop: now},
+		{ID: "m5", Bind: store.BindNone, Start: now.Add(-40 * time.Minute), Stop: now},
+	}
+	got := otherMarkSpans(marks, &me, now)
+	if len(got) != 2 || !got[0].to.Equal(now.Add(-30*time.Minute)) || !got[1].to.Equal(now) {
+		t.Fatalf("다른 mark 구간 = %+v", got)
+	}
+}
+
+// 한 갈래 파일에서 stop → 바로 다음 start 를 하면 앞 mark 의 「stop 뒤」에 뒤 mark 시간이 안 든다.
+func TestMarkTwoMarksOneFile(t *testing.T) {
+	fx := newMarkFixture(t)
+	a := startBound(t, fx, "18-첫판")
+	t0 := a.Start
+	fx.appendLines(fx.agentPath("a1"), mainLine(t0.Add(time.Minute), "assistant"))
+	fx.clock = t0.Add(90 * time.Second) // 묶기 창(2분) 안. 파일 mtime 은 실제 시계다
+	if code, so, se := fx.run("stop", a.ID); code != exitOK {
+		t.Fatalf("%d\n%s\n%s", code, so, se)
+	}
+	fx.appendLines(fx.agentPath("a1"), toolUseLine(fx.clock.Add(-time.Second), `effort mark start "18-둘째판"`))
+	if code, so, se := fx.run("start", "18-둘째판"); code != exitOK {
+		t.Fatalf("%d\n%s\n%s", code, so, se)
+	}
+	fx.appendLines(fx.agentPath("a1"), mainLine(t0.Add(5*time.Minute), "assistant"), mainLine(t0.Add(10*time.Minute), "assistant"))
+	fx.clock = t0.Add(10 * time.Minute)
+	if code, so, se := fx.run("stop", "18-둘째판"); code != exitOK {
+		t.Fatalf("%d\n%s\n%s", code, so, se)
+	}
+	fx.appendLines(fx.agentPath("a1"), mainLine(t0.Add(11*time.Minute), "assistant"))
+	_, so, _ := fx.run("show", a.ID)
+	if !strings.Contains(so, "stop 뒤 1분 · 다른 mark 9분") || strings.Contains(so, "주의 :") {
+		t.Fatalf("첫판 갈래 줄이 틀렸다 :\n%s", so)
+	}
+}
+
+// 0 은 「없음」, 0 초과~1분 미만만 「1분 미만」. 첫·끝 날짜가 다르면 날짜를 붙인다.
+func TestBranchTotalText(t *testing.T) {
+	loc := time.Local
+	first := time.Date(2026, 10, 5, 23, 58, 0, 0, loc)
+	m := &store.TimeMark{ID: "m1005-aaaa", Start: first, Stop: first.Add(3 * time.Minute), File: "s/agent-x"}
+	v := markValue{end: m.Stop, fileFirst: first, fileLast: first.Add(3*time.Minute + 20*time.Second)}
+	got := branchTotalText(m, v)
+	if !strings.Contains(got, "mark 앞 없음") || !strings.Contains(got, "stop 뒤 1분 미만") {
+		t.Fatalf("없음·1분 미만 구분이 틀렸다 : %q", got)
+	}
+	if !strings.Contains(got, "(10-05 23:58:00~10-06 00:01:20)") {
+		t.Fatalf("날짜가 다른데 날짜가 없다 : %q", got)
+	}
+	same := first.Add(-time.Hour)
+	m.Start, v.fileFirst = same.Add(time.Minute), same
+	m.Stop, v.end, v.fileLast = same.Add(5*time.Minute), same.Add(5*time.Minute), same.Add(5*time.Minute)
+	got = branchTotalText(m, v)
+	if !strings.Contains(got, "(22:58:00~23:03:00)") || !strings.Contains(got, "stop 뒤 없음") {
+		t.Fatalf("같은 날은 시각만 · 뒤 0 은 없음 : %q", got)
+	}
+}
+
+// start 바로 뒤 stop 해 구간 안 본줄이 없으면 구간안본줄없음을 달고 까닭 줄을 찍는다.
+func TestMarkNoMainInSpanReason(t *testing.T) {
+	fx := newMarkFixture(t)
+	m := startBound(t, fx, "13-빈판")
+	fx.clock = m.Start.Add(30 * time.Second)
+	code, so, se := fx.run("stop", m.ID)
+	if code != exitOK {
+		t.Fatalf("stop 종료 %d\n%s\n%s", code, so, se)
+	}
+	if !strings.Contains(so, flagNoMainInSpan) || !strings.Contains(so, "기록 구간을 못 쟀습니다 — 까닭 : ") {
+		t.Fatalf("까닭 줄이 없다 :\n%s", so)
+	}
+}
+
+// 10분 미만은 괄호에 분·초를 단다. 10분부터는 분만.
+func TestSpanDetail(t *testing.T) {
+	cases := []struct {
+		ms   int64
+		want string
+	}{
+		{-1, "—"},
+		{59 * 1000, "1분 미만 (59초)"},
+		{(2*60 + 29) * 1000, "2분 (2분 29초)"},
+		{(2*60 + 43) * 1000, "3분 (2분 43초)"},
+		{(9*60 + 59) * 1000, "10분 (9분 59초)"},
+		{10 * 60 * 1000, "10분"},
+	}
+	for _, c := range cases {
+		if got := spanDetail(c.ms); got != c.want {
+			t.Fatalf("spanDetail(%d) = %q, 원한 것 %q", c.ms, got, c.want)
+		}
+	}
+}
+
+// mark 밖 본줄이 2분 넘고 갈래 전체의 30% 넘을 때만 경고한다.
+func TestOutsideWarnThreshold(t *testing.T) {
+	min := int64(60 * 1000)
+	cases := []struct {
+		total, outside int64
+		want           bool
+	}{
+		{4 * min, 77 * 1000, false},      // 밖 1:17 — 2분 안 (실물 m1005-6b1a 꼴)
+		{4 * min, 2 * min, false},        // 밖 꼭 2분 — 넘어야 한다
+		{10 * min, 150 * 1000, false},    // 밖 2:30 · 25% — 30% 안
+		{6 * min, 150 * 1000, true},      // 밖 2:30 · 42%
+		{10 * min, 3 * min, false},       // 밖 3분 · 꼭 30% — 넘어야 한다
+		{20 * min, 3 * min, false},       // 밖 3분 · 15%
+		{10 * min, 4 * min, true},        // 밖 4분 · 40%
+	}
+	for _, c := range cases {
+		if got := outsideWarn(c.total, c.outside); got != c.want {
+			t.Fatalf("outsideWarn(%d, %d) = %v", c.total, c.outside, got)
+		}
+	}
+}
+
+// 갈래 파일에 묶이면 「갈래 기록 전체」 줄을 찍는다 : 앞·뒤 길이, 압축 시각, 문턱 넘으면 경고.
+func TestMarkBranchTotalLine(t *testing.T) {
+	fx := newMarkFixture(t)
+	m := startBound(t, fx, "14-갈래") // 파일 첫 본줄 = start 2분 앞 → 전체 = -2분~8분 = 10분, 밖 = 앞 2 + 뒤 5
+	t0 := m.Start
+	fx.appendLines(fx.agentPath("a1"),
+		mainLine(t0.Add(1*time.Minute), "assistant"),
+		sideLine(t0.Add(90*time.Second), "system", "compact_boundary"),
+		mainLine(t0.Add(3*time.Minute), "assistant"),
+		mainLine(t0.Add(8*time.Minute), "assistant"), // stop 뒤 보고 쓰기
+	)
+	// stop 은 3분에 쳤다. 그 뒤 줄은 시험이 미리 적어 둔 것 — show 로 나중에 보는 것과 같다.
+	fx.clock = t0.Add(3 * time.Minute)
+	code, so, se := fx.run("stop", m.ID)
+	if code != exitOK {
+		t.Fatalf("stop 종료 %d\n%s\n%s", code, so, se)
+	}
+	for _, want := range []string{"갈래 기록 전체 : 10분", "mark 앞 2분", "stop 뒤 5분", "압축 1번 (", "주의 : 이 기록 파일에 mark 밖 본줄이"} {
+		if !strings.Contains(so, want) {
+			t.Fatalf("%q 가 없다 :\n%s", want, so)
+		}
+	}
+	if !strings.Contains(so, "mark show") {
+		t.Fatalf("stop 때 「stop 뒤」 안내가 없다 :\n%s", so)
+	}
+}
+
+// 메인 세션 파일에 묶이면 「갈래 기록 전체」 줄을 안 찍는다 — 세션 전체라 뜻이 없다.
+func TestMarkMainSessionNoBranchLine(t *testing.T) {
+	fx := newMarkFixture(t)
+	parent := filepath.Join(fx.root, markSlug, markSession+".jsonl")
+	fx.appendLines(parent, mainLine(fx.clock.Add(-time.Hour), "user"), toolUseLine(fx.clock.Add(-time.Second), `effort mark start "15-메인"`))
+	if code, so, se := fx.run("start", "15-메인"); code != exitOK {
+		t.Fatalf("%d\n%s\n%s", code, so, se)
+	}
+	m := fx.marks()[0]
+	if m.File != markSession {
+		t.Fatalf("메인 파일에 안 묶였다 : %+v", m)
+	}
+	fx.appendLines(parent, mainLine(m.Start.Add(time.Minute), "assistant"), mainLine(m.Start.Add(2*time.Minute), "assistant"))
+	fx.clock = m.Start.Add(2 * time.Minute)
+	_, so, _ := fx.run("stop", m.ID)
+	if strings.Contains(so, "갈래 기록 전체") || strings.Contains(so, "mark 밖") {
+		t.Fatalf("메인 파일인데 갈래 줄을 찍었다 :\n%s", so)
+	}
+}
+
+// show 에 mark id 를 주면 못 찾은 끝에 mark show 를 귀띔한다. 종료 코드는 그대로 2.
+func TestShowHintsMarkID(t *testing.T) {
+	home := scanForGroups(t)
+	code, _, se := captureBoth(t, "show", "--home", home, "m1004-50eb")
+	if code != exitNoData || !strings.Contains(se, "mark id 꼴입니다. effort mark show m1004-50eb") {
+		t.Fatalf("귀띔이 없다 : %d\n%s", code, se)
+	}
+	code, _, se = captureBoth(t, "show", "--home", home, "p-nosuch")
+	if code != exitNoData || strings.Contains(se, "mark id") {
+		t.Fatalf("mark id 가 아닌데 귀띔했다 : %d\n%s", code, se)
 	}
 }
 

@@ -102,6 +102,21 @@ func TestParseRulesRejectsBadNumbers(t *testing.T) {
 	}
 }
 
+// min·blend 줄을 아예 뺀 rules.txt 도 0/0 이 아니라 기본 5/12 로 읽힌다 (newRules 가 파싱 전에 넣는다).
+func TestMinBlendDefaultWhenLinesMissing(t *testing.T) {
+	text := dropLines(DefaultRulesText, []string{"min", "blend"})
+	if strings.Contains(text, "min\tsample") || strings.Contains(text, "blend\tsample") {
+		t.Fatal("min·blend 줄이 덜 빠졌다")
+	}
+	r, err := ParseRules(strings.NewReader(text))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.MinSample != 5 || r.BlendMax != 12 {
+		t.Fatalf("줄이 없을 때 표본 경계 = %d / %d, 바란 값 5 / 12", r.MinSample, r.BlendMax)
+	}
+}
+
 // estimate 표본의 서브 구간 상한. 줄이 없으면 120분이고 빠진 종류로 알린다.
 func TestSubMaxRule(t *testing.T) {
 	r, err := ParseRules(strings.NewReader("chore\t커밋\n"))

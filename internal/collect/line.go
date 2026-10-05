@@ -5,6 +5,9 @@ import "github.com/mirusona/officina-effort-tool/internal/jsonl"
 // subtypeAway 는 사람이 자리를 비웠다는 표시다. 앞줄과 3분 이상 떨어져 찍힌다.
 const subtypeAway = "away_summary"
 
+// subtypeCompact 는 문맥 압축 경계 줄이다. 본줄로 센다 — 압축 뒤에도 같은 파일에 이어 쓰기 때문이다.
+const subtypeCompact = "compact_boundary"
+
 // isMainLine 은 「일한 흔적」이 있는 줄인지다. 곁줄은 다음 프롬프트가 큐에 들어오는 순간이나
 // 사람이 자리를 비운 뒤에 찍혀, 앞 작업의 끝을 사람 대기만큼 늘린다.
 // 빼는 목록이 아니라 넣는 목록인 까닭은 새 곁줄 종류가 생겨도 시간이 안 부풀게 하려는 것이다.

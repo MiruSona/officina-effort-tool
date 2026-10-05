@@ -52,6 +52,32 @@ func TestFindToolUseTail(t *testing.T) {
 	}
 }
 
+// MainSpan 은 파일 첫 본줄(FileFirst)과 압축 경계 시각을 같이 모은다. 구간 밖 줄도 센다.
+func TestMainSpanFileFirstAndCompacts(t *testing.T) {
+	lines := `{"type":"queue-operation","timestamp":"2026-10-05T08:54:00Z"}
+{"type":"user","timestamp":"2026-10-05T08:55:04Z","message":{"content":"시작"}}
+{"type":"assistant","timestamp":"2026-10-05T08:56:00Z","message":{"content":"…"}}
+{"type":"system","subtype":"compact_boundary","timestamp":"2026-10-05T08:56:30Z"}
+{"type":"assistant","timestamp":"2026-10-05T08:57:00Z","message":{"content":"…"}}
+{"type":"assistant","timestamp":"2026-10-05T08:59:04Z","message":{"content":"…"}}
+`
+	from := time.Date(2026, 10, 5, 8, 55, 30, 0, time.UTC)
+	to := time.Date(2026, 10, 5, 8, 58, 0, 0, time.UTC)
+	s, err := MainSpan(strings.NewReader(lines), from, to, 3*time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := time.Date(2026, 10, 5, 8, 55, 4, 0, time.UTC); !s.FileFirst.Equal(want) {
+		t.Fatalf("FileFirst = %v (곁줄은 빼고 첫 본줄이어야 한다)", s.FileFirst)
+	}
+	if want := time.Date(2026, 10, 5, 8, 59, 4, 0, time.UTC); !s.LastMain.Equal(want) {
+		t.Fatalf("LastMain = %v", s.LastMain)
+	}
+	if len(s.Compacts) != 1 || !s.Compacts[0].Equal(time.Date(2026, 10, 5, 8, 56, 30, 0, time.UTC)) {
+		t.Fatalf("Compacts = %v", s.Compacts)
+	}
+}
+
 // 셸 도구의 command 칸만 본다. Agent 프롬프트·Write 내용에 같은 명령이 있어도 안 잡힌다.
 func TestFindToolUseShellCommandOnly(t *testing.T) {
 	lines := `{"type":"assistant","timestamp":"2026-09-26T05:00:00Z","message":{"content":[{"type":"tool_use","name":"Agent","input":{"prompt":"effort mark start \"2-타일\""}}]}}

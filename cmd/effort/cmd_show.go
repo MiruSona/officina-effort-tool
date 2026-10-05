@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -9,6 +10,9 @@ import (
 	"github.com/mirusona/officina-effort-tool/internal/render"
 	"github.com/mirusona/officina-effort-tool/internal/store"
 )
+
+// markIDLike 는 mark id 꼴(m1004-50eb)이다. show 에 mark id 를 잘못 준 사람에게 mark show 를 귀띔한다.
+var markIDLike = regexp.MustCompile(`^m\d{4}-[0-9a-f]{4}$`)
 
 func cmdShow(args []string) error {
 	fs := newFlags("show")
@@ -27,6 +31,9 @@ func cmdShow(args []string) error {
 	}
 	hits := matchTasks(tasks, want)
 	if len(hits) == 0 {
+		if markIDLike.MatchString(want) {
+			return fail(exitNoData, "그런 작업이 없습니다 : %s — mark id 꼴입니다. effort mark show %s", want, want)
+		}
 		return fail(exitNoData, "그런 작업이 없습니다 : %s", want)
 	}
 	if len(hits) > 1 {

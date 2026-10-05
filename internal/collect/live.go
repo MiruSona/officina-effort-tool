@@ -141,6 +141,10 @@ type LiveSpan struct {
 	Last     time.Time // from~to 안 끝 본줄
 	LastMain time.Time // 파일 전체의 마지막 본줄
 	WaitMs   int64     // from~to 안에서 시작하고 끝난 긴 도구 틈의 합 (「대기」, 기록 구간에서 안 뺌)
+	// FileFirst 는 파일 전체의 첫 본줄이다. LastMain 과 짝지어 「갈래 기록 전체」를 잰다.
+	FileFirst time.Time
+	// Compacts 는 압축 경계(system · compact_boundary) 줄의 시각이다. 압축 뒤에도 같은 파일에 이어 쓴다.
+	Compacts []time.Time
 }
 
 // Ms 는 기록 구간 길이다. 본줄이 없으면 -1.
@@ -164,6 +168,12 @@ func MainSpan(r io.Reader, from, to time.Time, waitMin time.Duration) (LiveSpan,
 			continue
 		}
 		ts := line.Timestamp
+		if line.Type == "system" && line.Subtype == subtypeCompact {
+			out.Compacts = append(out.Compacts, ts)
+		}
+		if out.FileFirst.IsZero() || ts.Before(out.FileFirst) {
+			out.FileFirst = ts
+		}
 		if ts.After(out.LastMain) {
 			out.LastMain = ts
 		}

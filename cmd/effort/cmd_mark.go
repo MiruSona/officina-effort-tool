@@ -30,14 +30,23 @@ const (
 	// 기록 구간과 찍은 구간이 이 비율보다 더 다르면 「어긋남」을 단다.
 	driftRatio  = 0.2
 	maxMarkName = 60
+	// mark 밖 본줄이 outsideMin 을 넘고 갈래 전체의 outsideRatio 를 넘으면 경고한다.
+	// 작은 값까지 띄우면 매 판 경고가 붙어 아무도 안 읽는다 — 그래서 둘 다 넘을 때만.
+	outsideMin   = 2 * time.Minute
+	outsideRatio = 0.3
+	// detailUnder 보다 짧은 구간은 괄호에 분·초를 단다. 분 반올림이 작은 값을 크게 흔들기 때문이다.
+	detailUnder = 10 * time.Minute
 )
 
 // 값 옆에 다는 표시.
 const (
-	flagOpen    = "진행중"
-	flagAutoEnd = "끝자동"
-	flagDrift   = "어긋남"
-	flagOverCap = "상한넘음"
+	flagOpen         = "진행중"
+	flagAutoEnd      = "끝자동"
+	flagDrift        = "어긋남"
+	flagOverCap      = "상한넘음"
+	flagOpenFail     = "파일못엶"
+	flagReadFail     = "파일못읽음"
+	flagNoMainInSpan = "구간안본줄없음"
 )
 
 // nowFunc 는 exe 시계다. 시험만 바꾼다 — 사람이 시각을 넣는 길은 아니다.
@@ -342,7 +351,8 @@ func markStopOrShow(args []string, stop bool) error {
 	}
 	lim := markRuleLimits(st)
 	v := measureMark(m, root, lim, now)
-	printMarkValue(m, v, lim)
+	v.others = otherMarkSpans(marks, m, now)
+	printMarkValue(m, v, lim, stop)
 	return nil
 }
 
@@ -403,6 +413,74 @@ type markValue struct {
 	waitMs   int64 // 기록 구간 안의 「대기」. 기록 구간을 못 쟀으면 -1
 	end      time.Time
 	flags    []string
+	// 묶인 파일 전체 값. 파일을 못 읽었으면 영 값이다.
+	fileFirst, fileLast time.Time
+	compacts            []time.Time
+	// others 는 같은 기록 파일에 묶인 다른 mark 의 구간이다. 「mark 앞」·「stop 뒤」에서 뺀다.
+	others []markSpan
+}
+
+// markSpan 은 시각 구간 하나다.
+type markSpan struct{ from, to time.Time }
+
+// otherMarkSpans 는 m 과 같은 기록 파일에 묶인 다른 mark 의 구간을 준다. 진행 중인 것은 now 까지.
+// 다른 파일에 묶였거나 묶기에 실패한 mark 는 안 든다.
+func otherMarkSpans(marks []store.TimeMark, m *store.TimeMark, now time.Time) []markSpan {
+	if m.File == "" {
+		return nil
+	}
+	var out []markSpan
+	for i := range marks {
+		o := &marks[i]
+		if o.ID == m.ID || o.File != m.File || o.Slug != m.Slug {
+			continue
+		}
+		to := o.Stop
+		if to.IsZero() {
+			to = now
+		}
+		out = append(out, markSpan{from: o.Start, to: to})
+	}
+	return out
+}
+
+// coveredMs 는 spans 의 합집합이 [lo, hi] 안에서 덮는 길이(ms)다. 겹친 곳은 한 번만 센다.
+func coveredMs(spans []markSpan, lo, hi time.Time) int64 {
+	if !hi.After(lo) {
+		return 0
+	}
+	var clip []markSpan
+	for _, s := range spans {
+		f, t := s.from, s.to
+		if f.Before(lo) {
+			f = lo
+		}
+		if t.After(hi) {
+			t = hi
+		}
+		if t.After(f) {
+			clip = append(clip, markSpan{from: f, to: t})
+		}
+	}
+	sort.Slice(clip, func(i, j int) bool { return clip[i].from.Before(clip[j].from) })
+	var sum int64
+	var cur markSpan
+	for i, s := range clip {
+		if i > 0 && !s.from.After(cur.to) {
+			if s.to.After(cur.to) {
+				cur.to = s.to
+			}
+			continue
+		}
+		if i > 0 {
+			sum += cur.to.Sub(cur.from).Milliseconds()
+		}
+		cur = s
+	}
+	if len(clip) > 0 {
+		sum += cur.to.Sub(cur.from).Milliseconds()
+	}
+	return sum
 }
 
 // markLimits 는 mark 값에 쓰는 rules.txt 값(분)이다.
@@ -455,12 +533,12 @@ func measureBound(m *store.TimeMark, root string, waitMin time.Duration, now tim
 	v := markValue{recordMs: -1, waitMs: -1}
 	jail, err := paths.NewJail(root)
 	if err != nil {
-		v.flags = append(v.flags, "파일못엶")
+		v.flags = append(v.flags, flagOpenFail)
 		return v
 	}
 	f, err := jail.OpenRead(markFilePath(m.Slug, m.File))
 	if err != nil {
-		v.flags = append(v.flags, "파일못엶")
+		v.flags = append(v.flags, flagOpenFail)
 		return v
 	}
 	defer f.Close()
@@ -475,13 +553,16 @@ func measureBound(m *store.TimeMark, root string, waitMin time.Duration, now tim
 	}
 	span, err := collect.MainSpan(f, m.Start, to, waitMin)
 	if err != nil {
-		v.flags = append(v.flags, "파일못읽음")
+		v.flags = append(v.flags, flagReadFail)
 		return v
 	}
 	v.recordMs = span.Ms()
 	if v.recordMs >= 0 {
 		v.waitMs = span.WaitMs
+	} else {
+		v.flags = append(v.flags, flagNoMainInSpan)
 	}
+	v.fileFirst, v.fileLast, v.compacts = span.FileFirst, span.LastMain, span.Compacts
 	if m.Open() {
 		if autoEnd {
 			v.flags = append(v.flags, flagAutoEnd)
@@ -537,7 +618,132 @@ func spanText(ms int64) string {
 	return render.Minutes(ms)
 }
 
-func printMarkValue(m *store.TimeMark, v markValue, lim markLimits) {
+// spanDetail 은 mark stop·show 화면의 구간 글이다. 짧은 구간은 괄호에 분·초를 단다 (2분 43초 → 「3분 (2분 43초)」).
+// mark list 표 칸은 spanText 그대로 둔다 — 칸이 넓어지면 표가 깨진다.
+func spanDetail(ms int64) string {
+	s := spanText(ms)
+	if ms < 0 || ms >= detailUnder.Milliseconds() {
+		return s
+	}
+	sec := ms / 1000
+	if sec < 60 {
+		return fmt.Sprintf("%s (%d초)", s, sec)
+	}
+	return fmt.Sprintf("%s (%d분 %d초)", s, sec/60, sec%60)
+}
+
+// failReasons 는 「못 쟀다」 표시를 사람이 읽는 까닭으로 푼다.
+var failReasons = []struct{ flag, text string }{
+	{store.BindNone, fmt.Sprintf("mark start 를 부른 기록 파일을 최근 %d분 안에서 못 찾음", int(bindWindow.Minutes()))},
+	{store.BindAmbiguous, "같은 이름으로 mark start 를 부른 기록 파일이 여럿이라 못 고름"},
+	{flagOpenFail, "묶은 기록 파일을 못 엶 (지워졌거나 옮겨졌을 수 있음)"},
+	{flagReadFail, "묶은 기록 파일을 읽다가 실패함"},
+	{flagNoMainInSpan, "묶은 기록 파일에 start~stop 사이 본줄이 없음 (start 바로 뒤 stop 했거나 일을 다른 파일에서 했음)"},
+}
+
+// noMainOpenText 는 진행 중 mark 의 구간안본줄없음 까닭이다. 아직 stop 이 없으니 stop 을 말하지 않는다.
+const noMainOpenText = "묶은 기록 파일에 아직 start 뒤 본줄이 없음 (막 시작했거나 일을 다른 파일에서 하는 중)"
+
+// failReason 은 표시 중 첫 까닭을 「까닭(표시)」 꼴로 준다. 까닭 표시가 없으면 빈 글이다.
+func failReason(flags []string) string {
+	for _, r := range failReasons {
+		if !hasFlag(flags, r.flag) {
+			continue
+		}
+		text := r.text
+		if r.flag == flagNoMainInSpan && hasFlag(flags, flagOpen) {
+			text = noMainOpenText
+		}
+		return fmt.Sprintf("%s(%s)", text, r.flag)
+	}
+	return ""
+}
+
+// outsideWarn 은 mark 밖 본줄이 문턱 둘(2분 · 갈래 전체의 30%)을 다 넘는지다.
+func outsideWarn(totalMs, outsideMs int64) bool {
+	if totalMs <= 0 {
+		return false
+	}
+	return outsideMs > outsideMin.Milliseconds() && float64(outsideMs)/float64(totalMs) > outsideRatio
+}
+
+// isAgentFile 은 묶인 파일이 갈래(서브에이전트) 파일인지다. 파일 칸이 「세션/agent-…」 꼴이면 갈래다.
+// 메인 세션 파일은 세션 전체가 한 파일이라 「갈래 기록 전체」가 뜻이 없다.
+func isAgentFile(file string) bool {
+	return strings.Contains(file, "/")
+}
+
+// printBranchTotal 은 갈래 파일 전체 길이와 mark 앞·뒤 본줄 길이를 찍는다.
+// 갈래는 mark start 앞(작업서 읽기)과 stop 뒤(보고 쓰기)에도 일한다. 「기록 구간」이 짧아 보이는 까닭을 숫자로 보인다.
+func printBranchTotal(m *store.TimeMark, v markValue, stopped bool) {
+	if !isAgentFile(m.File) || v.fileFirst.IsZero() {
+		return
+	}
+	fmt.Println(branchTotalText(m, v))
+	if stopped {
+		fmt.Printf("      「stop 뒤」는 stop 을 친 지금까지라 거의 0 입니다. 보고를 쓴 뒤 effort mark show %s 로 다시 보면 찹니다.\n", m.ID)
+	}
+	totalMs, beforeMs, afterMs, _ := branchSpans(m, v)
+	if outside := beforeMs + afterMs; outsideWarn(totalMs, outside) {
+		fmt.Printf("주의 : 이 기록 파일에 mark 밖 본줄이 %s 있다 — 「실제」 칸은 기록 구간, 갈래 전체는 참고로 같이 적는다\n",
+			spanText(outside))
+	}
+}
+
+// branchSpans 는 갈래 파일 전체 · mark 앞 · stop 뒤 · 뺀 다른 mark 길이(ms)다.
+// 같은 파일의 다른 mark 구간은 앞·뒤에서 뺀다 — 한 갈래가 소단계마다 mark 를 여닫으면 그 시간은 mark 밖이 아니다.
+// 앞·뒤 구역만 보므로 자기 구간과 겹친 몫은 안 센다. stop 이 없는 mark(진행중·끝자동)는 뒤가 0 이다.
+func branchSpans(m *store.TimeMark, v markValue) (totalMs, beforeMs, afterMs, otherMs int64) {
+	totalMs = v.fileLast.Sub(v.fileFirst).Milliseconds()
+	ob := coveredMs(v.others, v.fileFirst, m.Start)
+	beforeMs = max(m.Start.Sub(v.fileFirst).Milliseconds()-ob, 0)
+	otherMs = ob
+	if !m.Open() {
+		oa := coveredMs(v.others, v.end, v.fileLast)
+		afterMs = max(v.fileLast.Sub(v.end).Milliseconds()-oa, 0)
+		otherMs += oa
+	}
+	return totalMs, beforeMs, afterMs, otherMs
+}
+
+// branchTotalText 는 「갈래 기록 전체」 한 줄이다. stop 이 없으면 「stop 뒤 —」,
+// 첫·끝 본줄의 날짜가 다르면 시각 앞에 날짜를 붙인다.
+func branchTotalText(m *store.TimeMark, v markValue) string {
+	totalMs, beforeMs, afterMs, otherMs := branchSpans(m, v)
+	layout := "15:04:05"
+	if v.fileFirst.Local().Format("2006-01-02") != v.fileLast.Local().Format("2006-01-02") {
+		layout = "01-02 15:04:05"
+	}
+	after := "—"
+	if !m.Open() {
+		after = outsideText(afterMs)
+	}
+	compact := "압축 없음"
+	if len(v.compacts) > 0 {
+		at := make([]string, len(v.compacts))
+		for i, c := range v.compacts {
+			at[i] = c.Local().Format(layout)
+		}
+		compact = fmt.Sprintf("압축 %d번 (%s)", len(v.compacts), strings.Join(at, " · "))
+	}
+	other := ""
+	if otherMs > 0 {
+		other = " · 다른 mark " + spanText(otherMs)
+	}
+	return fmt.Sprintf("갈래 기록 전체 : %s (%s~%s) · mark 앞 %s · stop 뒤 %s%s · %s",
+		spanText(totalMs), v.fileFirst.Local().Format(layout), v.fileLast.Local().Format(layout),
+		outsideText(beforeMs), after, other, compact)
+}
+
+// outsideText 는 mark 앞·뒤 칸 글이다. 0 은 「없음」, 0 초과~1분 미만만 「1분 미만」.
+func outsideText(ms int64) string {
+	if ms <= 0 {
+		return "없음"
+	}
+	return spanText(ms)
+}
+
+func printMarkValue(m *store.TimeMark, v markValue, lim markLimits, stopped bool) {
 	fmt.Printf("mark %s · %s\n", m.ID, m.Name)
 	endText := v.end.Local().Format("2006-01-02 15:04:05")
 	switch {
@@ -551,15 +757,20 @@ func printMarkValue(m *store.TimeMark, v markValue, lim markLimits) {
 	if m.File != "" {
 		fmt.Printf("묶은 기록 : %s/%s\n", m.Slug, m.File)
 	}
-	fmt.Printf("기록 구간 : %s   ← 공수 표 「실제」 칸에 쓰는 값\n", spanText(v.recordMs))
-	fmt.Printf("찍은 구간 : %s   (exe 시계 · 참고)\n", spanText(v.markedMs))
+	fmt.Printf("기록 구간 : %s   ← 공수 표 「실제」 칸에 쓰는 값\n", spanDetail(v.recordMs))
+	fmt.Printf("찍은 구간 : %s   (exe 시계 · 참고)\n", spanDetail(v.markedMs))
 	fmt.Printf("대기 : %s   (도구 한 번이 %d분 넘게 걸린 틈의 합 · 기록 구간에 든 채로 보여 주기만)\n",
 		waitText(v.waitMs), lim.waitMin)
 	if len(v.flags) > 0 {
 		fmt.Printf("표시 : %s\n", strings.Join(v.flags, " · "))
 	}
+	printBranchTotal(m, v, stopped)
 	if v.recordMs < 0 {
-		fmt.Println("기록 구간을 못 쟀습니다. 「실제」 칸에는 지어내지 말고 「못 쟀다」고 적습니다.")
+		head := "기록 구간을 못 쟀습니다"
+		if why := failReason(v.flags); why != "" {
+			head += " — 까닭 : " + why
+		}
+		fmt.Println(head + ". 「실제」 칸에는 지어내지 말고 「못 쟀다」고 적습니다.")
 	}
 }
 

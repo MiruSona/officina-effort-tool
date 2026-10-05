@@ -34,6 +34,20 @@ func TestFlagAfterArgFails(t *testing.T) {
 	}
 }
 
+// --add 이름이 비었거나 공백뿐이면 쓰기 오류가 아니라 사용법 오류다. 정본도 안 생긴다.
+func TestGroupAddEmptyNameIsUsage(t *testing.T) {
+	home := scanForGroups(t)
+	for _, name := range []string{"", "   ", "\t"} {
+		code, out := capture(t, "group", "--home", home, "--add", name, "p-notify-0001")
+		if code != exitUsage {
+			t.Fatalf("이름 %q : 종료 %d (1 이어야 한다)\n%s", name, code, out)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(home, "groups.txt")); !os.IsNotExist(err) {
+		t.Fatalf("빈 이름이 정본을 만들었다 : %v", err)
+	}
+}
+
 func TestGroupAddThenList(t *testing.T) {
 	home := scanForGroups(t)
 	code, out := capture(t, "group", "--home", home, "--add", "1. 문서 소단계",
