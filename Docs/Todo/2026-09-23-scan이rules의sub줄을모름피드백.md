@@ -1,10 +1,10 @@
 # effort scan 이 rules.txt 의 `sub` 줄을 몰라 멈춤 (2026-09-23)
 
-> ProjectMozzi2 에서 담장 업그레이드 작업 공수를 재려다 막힌 것. 서브에이전트가 남김.
+> 게임 저장소에서 담장 업그레이드 작업 공수를 재려다 막힌 것. 서브에이전트가 남김.
 
 ## 무슨 일
 
-- `Tools/EffortTool/bin/effort.exe scan` 이 `rules.txt 162번째 줄: 모르는 종류 "sub"` 를 내고 캐시를 안 고쳤다.
+- `Tools/<이 툴>/bin/effort.exe scan` 이 `rules.txt 162번째 줄: 모르는 종류 "sub"` 를 내고 캐시를 안 고쳤다.
 - `~/.effort/rules.txt` 162줄은 `# --- 2026-09-23 자동으로 더한 기본값 (sub) ---` 아래 `sub	max	120` 이다. **툴 자신이 자동으로 더한 줄**을 옛 exe(0.1.0 · 0b13d53 · 09-21 빌드)가 못 읽는다.
 - `list --since` 는 옛 캐시로 돌아가 값이 나오지만 이번 판은 캐시에 안 들어가 「실제」 칸을 못 채웠다.
 
