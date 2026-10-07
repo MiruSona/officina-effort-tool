@@ -58,6 +58,13 @@ description: Use when estimating effort before starting work, filling the 실제
 - **시간을 손으로 적어 넣는 길은 없다** (`group --add` 는 경계 표시일 뿐이고 `actual` 은 잰 값만 읽는다. `mark` 도 이름만 받는다).
   값이 없으면 지어내지 말고 **「못 쟀다」**고 적는다.
 
+## effort-steps mod 와 같이 쓸 때
+
+- 시작에 `plan` 도구로 소단계를 넣는다. 예상은 `estimate` 가 채운다.
+- 서브에이전트 mark 이름은 **`<번호>-<이름>`** 으로 plan 의 번호와 맞춘다 (예 `2-타일그림`). 그래야 띠의 실제 칸이 자동으로 찬다.
+- 메인 세션이 직접 친 mark 는 stop 때 `묶기없음` 이 날 수 있다. **서브에이전트 mark 를 정본으로** 쓴다.
+- 완료 보고의 공수 표는 `table` 도구 결과를 붙인다.
+
 ## 언제 무엇을
 
 | 이럴 때 | 이렇게 |
