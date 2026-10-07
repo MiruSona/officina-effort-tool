@@ -405,7 +405,7 @@ func TestMarkFailReasons(t *testing.T) {
 	cases := []struct {
 		flag, want string
 	}{
-		{store.BindNone, "최근 2분 안"},
+		{store.BindNone, "다시 찾아도"},
 		{store.BindAmbiguous, "여럿"},
 		{"파일못엶", "못 엶"},
 		{flagNoMainInSpan, "본줄이 없음"},

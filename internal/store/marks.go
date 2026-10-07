@@ -33,6 +33,10 @@ type TimeMark struct {
 	File  string    // 프로젝트 폴더 안 기록 파일 : "<세션id>" 또는 "<세션id>/agent-<id>". 실패면 빈 값
 	Name  string
 	Bind  string // 묶기 결과 (빈 값 · 묶기없음 · 묶기모호)
+	// Late 는 start 때 못 묶고 뒤의 bind 줄로 묶였는지다 (미뤄 묶기).
+	Late bool
+	// Settled 는 bind 줄이 「다시 찾아도 못 찾음」을 적었는지다. 참이면 다시 안 찾는다.
+	Settled bool
 }
 
 // Open 은 아직 stop 이 없는지다.
@@ -121,6 +125,50 @@ func (s *Store) AppendMarkStop(id string, at time.Time) error {
 	return s.withMarksLock(func() error {
 		return s.appendMarkLineLocked(strings.Join([]string{"stop", id, at.UTC().Format(markTimeLayout)}, "\t"))
 	})
+}
+
+// AppendMarkBind 는 start 때 못 묶은 mark 의 bind 줄 하나를 덧붙인다 (미뤄 묶기).
+// 묶였으면 slug·file 을, 끝내 못 찾았으면 둘 다 빈 값과 까닭(묶기없음·묶기모호)을 준다.
+// start 줄은 안 고친다 — 덧붙이기만 한다. 락 안에서 다시 읽어 이미 묶였으면(또는 포기를 또 적으려 하면) 안 쓰고 false 다.
+func (s *Store) AppendMarkBind(id string, at time.Time, slug, file, status string) (bool, error) {
+	for _, v := range []string{slug, file, status} {
+		if err := checkMarkField(v); err != nil {
+			return false, err
+		}
+	}
+	wrote := false
+	err := s.withMarksLock(func() error {
+		marks, _, err := s.LoadMarks()
+		if err != nil {
+			return err
+		}
+		found := false
+		for _, m := range marks {
+			if m.ID != id {
+				continue
+			}
+			found = true
+			if m.File != "" || (m.Settled && file == "") {
+				return nil // 다른 판이 먼저 묶었거나, 포기를 또 적으려 했다
+			}
+		}
+		if !found {
+			return fmt.Errorf("시작이 없는 mark id %s", id)
+		}
+		if slug == "" {
+			slug = "-"
+		}
+		if file == "" {
+			file = "-"
+		}
+		line := strings.Join([]string{"bind", id, at.UTC().Format(markTimeLayout), slug, file}, "\t")
+		if status != "" {
+			line += "\t" + status
+		}
+		wrote = true
+		return s.appendMarkLineLocked(line)
+	})
+	return wrote, err
 }
 
 // checkMarkField 는 탭·줄바꿈 같은 칸을 깨는 글자를 막는다.
@@ -251,6 +299,10 @@ func (s *Store) LoadMarks() ([]TimeMark, []MarkWarning, error) {
 			if out[i].Stop.IsZero() {
 				out[i].Stop = at
 			}
+		case "bind":
+			if msg := applyBind(f, out, byID); msg != "" {
+				bad("%s", msg)
+			}
 		default:
 			warns = append(warns, MarkWarning{Line: n, Head: f[0]})
 		}
@@ -259,6 +311,39 @@ func (s *Store) LoadMarks() ([]TimeMark, []MarkWarning, error) {
 		return nil, warns, err
 	}
 	return out, warns, nil
+}
+
+// applyBind 는 bind 줄(id·시각·프로젝트·파일[·까닭])을 그 mark 에 얹는다. 틀렸으면 까닭 글을 준다.
+// 첫 성공 bind 가 이긴다 — 이미 묶인 mark 에 온 bind 는 조용히 버린다 (동시에 둘이 찾은 경우).
+// 포기 bind(프로젝트·파일이 `-`)는 첫 것만 쓰고, 뒤에 성공 bind 가 오면 포기를 덮는다 (show --rebind).
+func applyBind(f []string, out []TimeMark, byID map[string]int) string {
+	if len(f) < 5 {
+		return "bind 는 id·시각·프로젝트·파일 네 칸이 필요합니다"
+	}
+	if _, err := time.Parse(time.RFC3339Nano, f[2]); err != nil {
+		return fmt.Sprintf("시각이 틀렸습니다 (%s)", f[2])
+	}
+	i, ok := byID[f[1]]
+	if !ok {
+		return fmt.Sprintf("시작이 없는 mark id %s", f[1])
+	}
+	m := &out[i]
+	if m.File != "" {
+		return ""
+	}
+	slug, file := f[3], f[4]
+	if slug == "-" || file == "-" {
+		if m.Settled {
+			return ""
+		}
+		m.Settled = true
+		if len(f) >= 6 && f[5] != "" {
+			m.Bind = f[5]
+		}
+		return ""
+	}
+	m.Slug, m.File, m.Bind, m.Late, m.Settled = slug, file, "", true, false
+	return ""
 }
 
 // parseStart 는 start 줄을 푼다. 틀렸으면 까닭 글을 준다.

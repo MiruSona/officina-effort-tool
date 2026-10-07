@@ -80,9 +80,15 @@ func cmdMark(args []string) error {
 type markFlags struct {
 	home, projects, project string
 	since                   string
+	rebind                  bool
 }
 
 func parseMarkFlags(args []string, withSince bool) (*markFlags, []string, error) {
+	return parseMarkFlagsWith(args, withSince, false)
+}
+
+// parseMarkFlagsWith 는 withRebind 면 --rebind 도 받는다 (show 만).
+func parseMarkFlagsWith(args []string, withSince, withRebind bool) (*markFlags, []string, error) {
 	fs := newFlags("mark")
 	o := &markFlags{}
 	fs.StringVar(&o.home, "home", "", "파생 저장소 자리")
@@ -90,6 +96,9 @@ func parseMarkFlags(args []string, withSince bool) (*markFlags, []string, error)
 	fs.StringVar(&o.project, "project", "", "프로젝트 폴더 이름 (기본은 지금 폴더)")
 	if withSince {
 		fs.StringVar(&o.since, "since", "", "이 날부터")
+	}
+	if withRebind {
+		fs.BoolVar(&o.rebind, "rebind", false, "포기가 적힌 묶기없음 mark 도 기록 파일을 다시 찾는다")
 	}
 	if err := parseFlags(fs, args); err != nil {
 		return nil, nil, err
@@ -114,11 +123,12 @@ func markStart(args []string) error {
 		return err
 	}
 	// 경고만 먼저 보여 준다. id 는 겹치지 않게 store 가 락 안에서 뽑는다.
-	if _, err := loadMarks(st); err != nil {
+	marks, err := loadMarks(st)
+	if err != nil {
 		return err
 	}
 	now := nowFunc()
-	b := bindOwnFile(root, o.project, "start", name, now)
+	b := bindOwnFile(root, o.project, name, now, marks)
 	m := store.TimeMark{Start: now, Slug: b.slug, File: b.file, Name: name, Bind: b.status}
 	id, err := st.AppendMarkStart(m)
 	if err != nil {
@@ -132,8 +142,9 @@ func markStart(args []string) error {
 		fmt.Printf("주의 : %s — 같은 이름으로 mark start 를 부른 기록 파일이 %d개라 못 골랐습니다. 찍은 구간만 잽니다.\n", b.status, b.hits)
 		fmt.Println("      이름은 판마다 다르게 짓습니다 (소단계 번호를 넣으면 겹치지 않습니다. 예 2-타일그림).")
 	default:
-		fmt.Printf("주의 : %s — 최근 %d분 안에 바뀐 기록 파일에서 이 mark start 를 못 찾았습니다. 찍은 구간만 잽니다.\n",
+		fmt.Printf("주의 : %s — 최근 %d분 안에 바뀐 기록 파일에서 이 mark start 를 아직 못 찾았습니다.\n",
 			b.status, int(bindWindow.Minutes()))
+		fmt.Println("      메인 세션은 이 줄을 몇 초 늦게 씁니다. stop·show·list 때 다시 찾아 묶습니다.")
 	}
 	fmt.Printf("끝낼 때 : effort mark stop %s\n", id)
 	return nil
@@ -178,8 +189,17 @@ type bindResult struct {
 
 // bindOwnFile 은 mark 를 부른 tool_use 줄이 든 기록 파일을 찾는다 (설계 2절 「자기 파일 찾기」).
 // 「가장 최근에 바뀐 파일」로 고르면 옆 갈래 파일을 잡는다 — 그래서 명령 글과 이름으로 찾는다.
-func bindOwnFile(root, project, verb, name string, now time.Time) bindResult {
-	hits := findCallers(root, project, verb, name, now)
+// 줄 시각은 now+5초 이하여야 하고, 같은 이름의 앞 mark 몫(그 mark 시각+5초 이하)인 줄은 뺀다 — 미뤄 묶기의 「줄의 임자」와 같다.
+func bindOwnFile(root, project, name string, now time.Time, marks []store.TimeMark) bindResult {
+	var lo time.Time
+	for i := range marks {
+		if marks[i].Name == name && marks[i].Start.Add(rebindAfter).After(lo) {
+			lo = marks[i].Start.Add(rebindAfter)
+		}
+	}
+	hits := findCallers(root, project, "start", name, now, func(ts time.Time) bool {
+		return ts.After(lo) && !ts.After(now.Add(rebindAfter))
+	})
 	switch len(hits) {
 	case 0:
 		return bindResult{status: store.BindNone}
@@ -191,39 +211,59 @@ func bindOwnFile(root, project, verb, name string, now time.Time) bindResult {
 
 type fileRef struct{ slug, file string }
 
-// findCallers 는 최근에 바뀐 기록 파일 중 `mark <verb> <name>` tool_use 가 끝쪽에 있는 파일을 모은다.
-// 지금 프로젝트 폴더에서 못 찾으면 전 프로젝트를 한 번 더 본다 (worktree 로 cwd 가 다를 때).
-func findCallers(root, project, verb, name string, now time.Time) []fileRef {
-	jail, err := paths.NewJail(root)
-	if err != nil {
-		return nil
+// callerHit 은 명령을 부른 기록 파일과 그 tool_use 줄의 시각이다.
+type callerHit struct {
+	fileRef
+	at time.Time
+}
+
+// ownSlug 는 --project 값, 없으면 지금 폴더로 만든 프로젝트 폴더 이름이다.
+func ownSlug(project string) string {
+	if project != "" {
+		return project
 	}
-	own := project
-	if own == "" {
-		if cwd, err := os.Getwd(); err == nil {
-			own = paths.Slug(cwd)
-		}
+	if cwd, err := os.Getwd(); err == nil {
+		return paths.Slug(cwd)
 	}
-	match := func(t string) bool { return collect.MatchMarkCommand(t, verb, name) }
-	hits := scanCallers(jail, []string{own}, now, match)
-	if len(hits) > 0 {
-		return hits
-	}
+	return ""
+}
+
+// otherSlugs 는 원본 뿌리 아래 own 이 아닌 프로젝트 폴더 이름들이다.
+func otherSlugs(jail *paths.Jail, own string) []string {
 	entries, err := os.ReadDir(jail.Root())
 	if err != nil {
 		return nil
 	}
-	var others []string
+	var out []string
 	for _, e := range entries {
 		if e.IsDir() && !strings.EqualFold(e.Name(), own) {
-			others = append(others, e.Name())
+			out = append(out, e.Name())
 		}
 	}
-	return scanCallers(jail, others, now, match)
+	return out
 }
 
-func scanCallers(jail *paths.Jail, slugs []string, now time.Time, match func(string) bool) []fileRef {
-	var out []fileRef
+// findCallers 는 최근에 바뀐 기록 파일 중 `mark <verb> <name>` tool_use 가 끝쪽에 있는 파일을 모은다.
+// 지금 프로젝트 폴더에서 못 찾으면 전 프로젝트를 한 번 더 본다 (worktree 로 cwd 가 다를 때).
+// inWindow 가 nil 이 아니면 줄 시각도 본다.
+func findCallers(root, project, verb, name string, now time.Time, inWindow func(time.Time) bool) []callerHit {
+	jail, err := paths.NewJail(root)
+	if err != nil {
+		return nil
+	}
+	own := ownSlug(project)
+	match := func(ts time.Time, t string) bool {
+		return (inWindow == nil || inWindow(ts)) && collect.MatchMarkCommand(t, verb, name)
+	}
+	hits := scanCallers(jail, []string{own}, now, match)
+	if len(hits) > 0 {
+		return hits
+	}
+	return scanCallers(jail, otherSlugs(jail, own), now, match)
+}
+
+func scanCallers(jail *paths.Jail, slugs []string, now time.Time, match func(time.Time, string) bool) []callerHit {
+	var out []callerHit
 	for _, slug := range slugs {
 		if slug == "" {
 			continue
@@ -233,10 +273,10 @@ func scanCallers(jail *paths.Jail, slugs []string, now time.Time, match func(str
 			if err != nil {
 				continue
 			}
-			_, ok, _ := collect.FindToolUse(f, c.size, match)
+			at, ok, _ := collect.FindToolUseTail(f, c.size, match)
 			f.Close()
 			if ok {
-				out = append(out, fileRef{slug: slug, file: c.file})
+				out = append(out, callerHit{fileRef: fileRef{slug: slug, file: c.file}, at: at})
 			}
 		}
 	}
@@ -251,6 +291,14 @@ type candidate struct {
 
 // recentFiles 는 프로젝트 폴더의 세션 파일과 서브에이전트 파일 중 bindWindow 안에 바뀐 것을 준다.
 func recentFiles(jail *paths.Jail, slug string, now time.Time) []candidate {
+	return slugFiles(jail, slug, func(mod time.Time) bool {
+		d := now.Sub(mod)
+		return d <= bindWindow && d >= -bindWindow
+	})
+}
+
+// slugFiles 는 프로젝트 폴더의 세션 파일과 서브에이전트 파일 중 수정 시각이 keep 에 맞는 것을 준다.
+func slugFiles(jail *paths.Jail, slug string, keep func(mod time.Time) bool) []candidate {
 	dir, err := jail.Resolve(slug)
 	if err != nil {
 		return nil
@@ -264,8 +312,7 @@ func recentFiles(jail *paths.Jail, slug string, now time.Time) []candidate {
 		if err != nil || !info.Mode().IsRegular() {
 			return 0, false
 		}
-		d := now.Sub(info.ModTime())
-		return info.Size(), d <= bindWindow && d >= -bindWindow
+		return info.Size(), keep(info.ModTime())
 	}
 	var out []candidate
 	for _, e := range entries {
@@ -309,7 +356,7 @@ func markFilePath(slug, file string) string {
 }
 
 func markStopOrShow(args []string, stop bool) error {
-	o, rest, err := parseMarkFlags(args, false)
+	o, rest, err := parseMarkFlagsWith(args, false, !stop)
 	if err != nil {
 		return err
 	}
@@ -336,6 +383,10 @@ func markStopOrShow(args []string, stop bool) error {
 		return err
 	}
 	now := nowFunc()
+	// 인자 없이 고를 때는 안 닫힌 mark 를 먼저 다시 묶는다 — 묶여야 부른 기록 파일로 고를 수 있다.
+	if want == "" {
+		rebindMarks(st, marks, root, o.project, now, func(m *store.TimeMark) bool { return m.Open() }, rebindOpts{})
+	}
 	m, err := pickMark(marks, want, stop, root, o.project, verb, now)
 	if err != nil {
 		return err
@@ -349,6 +400,10 @@ func markStopOrShow(args []string, stop bool) error {
 		}
 		m.Stop = now
 	}
+	// stop 을 먼저 적는다 — 포기 줄은 닫힌 mark 에만 쓴다.
+	id := m.ID
+	rebindMarks(st, marks, root, o.project, now, func(x *store.TimeMark) bool { return x.ID == id },
+		rebindOpts{settle: true, force: o.rebind})
 	lim := markRuleLimits(st)
 	v := measureMark(m, root, lim, now)
 	v.others = otherMarkSpans(marks, m, now)
@@ -381,8 +436,8 @@ func pickMark(marks []store.TimeMark, want string, openOnly bool, root, project,
 		return best, nil
 	}
 	callers := map[fileRef]bool{}
-	for _, c := range findCallers(root, project, verb, "", now) {
-		callers[c] = true
+	for _, c := range findCallers(root, project, verb, "", now, nil) {
+		callers[c.fileRef] = true
 	}
 	var hits []*store.TimeMark
 	for i := range marks {
@@ -393,6 +448,17 @@ func pickMark(marks []store.TimeMark, want string, openOnly bool, root, project,
 	}
 	if len(hits) == 1 {
 		return hits[0], nil
+	}
+	// 최근 2분 안에 바뀐 어느 파일에도 `mark <verb>` 줄이 없으면 메인 세션이 부른 것이다 — 메인은 줄을 몇 초 늦게 쓴다.
+	// 그때만 지금 프로젝트의 메인 세션 파일에 묶인 안 닫힌 mark 로 고른다. 그런 줄이 하나라도 있으면(갈래가 불렀을 수 있다) 안 고른다.
+	// 짐작으로 고른 것이라 show(읽기)만 하고, stop(쓰기)은 id 를 받는다.
+	if len(hits) == 0 && len(callers) == 0 {
+		if main := openMainFileMarks(marks, root, project, now); len(main) == 1 {
+			if !openOnly {
+				return main[0], nil
+			}
+			return nil, fail(exitUsage, "메인 세션의 인자 없는 stop 은 어느 mark 인지 확신할 수 없어 닫지 않습니다. id 를 줍니다 : effort mark stop %s", main[0].ID)
+		}
 	}
 	var open []string
 	for i := range marks {
@@ -634,7 +700,7 @@ func spanDetail(ms int64) string {
 
 // failReasons 는 「못 쟀다」 표시를 사람이 읽는 까닭으로 푼다.
 var failReasons = []struct{ flag, text string }{
-	{store.BindNone, fmt.Sprintf("mark start 를 부른 기록 파일을 최근 %d분 안에서 못 찾음", int(bindWindow.Minutes()))},
+	{store.BindNone, "mark start 를 부른 기록 파일을 못 찾음 (start 때도, stop·show 때 다시 찾아도)"},
 	{store.BindAmbiguous, "같은 이름으로 mark start 를 부른 기록 파일이 여럿이라 못 고름"},
 	{flagOpenFail, "묶은 기록 파일을 못 엶 (지워졌거나 옮겨졌을 수 있음)"},
 	{flagReadFail, "묶은 기록 파일을 읽다가 실패함"},
@@ -755,7 +821,11 @@ func printMarkValue(m *store.TimeMark, v markValue, lim markLimits, stopped bool
 	fmt.Printf("시작 : %s\n", m.Start.Local().Format("2006-01-02 15:04:05 -07:00"))
 	fmt.Printf("끝   : %s\n", endText)
 	if m.File != "" {
-		fmt.Printf("묶은 기록 : %s/%s\n", m.Slug, m.File)
+		late := ""
+		if m.Late {
+			late = "   (start 뒤에 다시 찾아 묶음)"
+		}
+		fmt.Printf("묶은 기록 : %s/%s%s\n", m.Slug, m.File, late)
 	}
 	fmt.Printf("기록 구간 : %s   ← 공수 표 「실제」 칸에 쓰는 값\n", spanDetail(v.recordMs))
 	fmt.Printf("찍은 구간 : %s   (exe 시계 · 참고)\n", spanDetail(v.markedMs))
@@ -767,7 +837,11 @@ func printMarkValue(m *store.TimeMark, v markValue, lim markLimits, stopped bool
 	printBranchTotal(m, v, stopped)
 	if v.recordMs < 0 {
 		head := "기록 구간을 못 쟀습니다"
-		if why := failReason(v.flags); why != "" {
+		why := failReason(v.flags)
+		if m.File == "" && m.Bind == store.BindNone && !m.Settled {
+			why = "mark start 를 부른 기록 파일을 아직 못 찾음 — 다음 stop·show 때 다시 찾는다(" + store.BindNone + ")"
+		}
+		if why != "" {
 			head += " — 까닭 : " + why
 		}
 		fmt.Println(head + ". 「실제」 칸에는 지어내지 말고 「못 쟀다」고 적습니다.")
@@ -800,6 +874,8 @@ func markList(args []string) error {
 	}
 	sort.SliceStable(marks, func(i, j int) bool { return marks[i].Start.Before(marks[j].Start) })
 	now := nowFunc()
+	// list 는 읽기라 포기 줄을 안 쓴다. 찾으면 묶는다.
+	rebindMarks(st, marks, root, o.project, now, func(m *store.TimeMark) bool { return cut.IsZero() || !m.Start.Before(cut) }, rebindOpts{})
 	lim := markRuleLimits(st)
 	head := []string{"mark", "이름", "시작", "기록 구간", "대기", "찍은 구간", "표시"}
 	var rows [][]string
