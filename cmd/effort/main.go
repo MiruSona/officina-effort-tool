@@ -77,6 +77,8 @@ func run(args []string) int {
 		err = cmdRules(rest)
 	case "mark":
 		err = cmdMark(rest)
+	case "mod":
+		err = cmdMod(rest)
 	case "version", "--version", "-v":
 		fmt.Printf("effort %s (%s)\n", Version, versionStamp())
 		return exitOK

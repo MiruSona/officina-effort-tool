@@ -2,6 +2,7 @@ package paths
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -78,5 +79,28 @@ func TestSlugMatchesClaudeFolderName(t *testing.T) {
 	want := "D--Work-Sample-Proj-my-app"
 	if got != want {
 		t.Fatalf("Slug = %q, 바란 값 %q", got, want)
+	}
+}
+
+// 윈도우 정션(mklink /J)은 권한 없이 만들 수 있다. 중간 폴더가 정션이고 끝 파일이 아직 없어도 막혀야 한다.
+func TestJailRejectsJunctionMiddleDirForNewFile(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("윈도우 정션 시험")
+	}
+	root := t.TempDir()
+	outside := t.TempDir()
+	link := filepath.Join(root, "중간")
+	if out, err := exec.Command("cmd", "/c", "mklink", "/J", link, outside).CombinedOutput(); err != nil {
+		t.Skipf("정션을 못 만든다 : %v %s", err, out)
+	}
+	j, err := NewJail(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p, err := j.Resolve(filepath.Join("중간", "새파일.txt")); err == nil {
+		t.Fatalf("중간 폴더가 정션인데 아직 없는 파일이 통과했다 : %s", p)
+	}
+	if _, err := j.Resolve(filepath.Join("진짜폴더", "새파일.txt")); err != nil {
+		t.Fatalf("뿌리 안 아직 없는 파일이 막혔다 : %v", err)
 	}
 }

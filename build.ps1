@@ -40,7 +40,7 @@ try {
     # PS 5.1 은 $ErrorActionPreference='Stop' 에서 네이티브 stderr 리디렉션을 예외로 터뜨린다. try 로 감싼다.
     $commit = ''
     if (Get-Command git -ErrorAction SilentlyContinue) {
-        try { $commit = (& git -C $root log -1 --format=%h -- cmd internal go.mod) } catch { $commit = '' }
+        try { $commit = (& git -C $root log -1 --format=%h -- cmd internal mod go.mod) } catch { $commit = '' }
         if ($LASTEXITCODE -ne 0) { $commit = '' }
         $global:LASTEXITCODE = 0
     }
@@ -50,7 +50,7 @@ try {
     # 미커밋 변경이 있으면 -dirty 를 붙인다. 구운 exe 가 어느 소스인지 애매하지 않게.
     if ($commit -ne '') {
         $dirty = ''
-        try { $dirty = (& git -C $root status --porcelain -- cmd internal go.mod | Out-String) } catch { $dirty = '' }
+        try { $dirty = (& git -C $root status --porcelain -- cmd internal mod go.mod | Out-String) } catch { $dirty = '' }
         if ($LASTEXITCODE -ne 0) { $dirty = '' }
         $global:LASTEXITCODE = 0
         if ($dirty.Trim() -ne '') { $commit += '-dirty' }

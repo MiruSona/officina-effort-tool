@@ -22,3 +22,6 @@ Thumbs.db
 
 # 로컬 전용 문서 (저장소에 올리지 않는다)
 *.local.md
+
+# mod 개발 때 엔진이 까는 타입 (저장소에 안 올린다)
+mod/*/.claude-plugin/types/

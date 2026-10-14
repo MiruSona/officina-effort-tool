@@ -91,7 +91,7 @@ mark 를 안 쓴 판은 **끝난 뒤 메인 세션이 잰다.** 도는 동안에
 .\build.ps1 -Test    # go vet · go test 까지 돌리고 만든다
 ```
 
-EffortTool 폴더 안에서 친다. `build.ps1` 은 **코드(`cmd` · `internal` · `go.mod`)를 마지막으로 바꾼 커밋**과
+EffortTool 폴더 안에서 친다. `build.ps1` 은 **코드(`cmd` · `internal` · `mod` · `go.mod`)를 마지막으로 바꾼 커밋**과
 빌드 시각을 실행 파일에 박으므로 `effort --version` 이 **어느 소스로 구운 것인지** 말해 준다.
 그 경로에 **미커밋 변경이 있으면 `-dirty`** 가 붙고, git 이 없거나 `.git` 이 없으면 `(dev)` 로 찍는다.
 
@@ -131,6 +131,7 @@ EffortTool 폴더 안에서 친다. `build.ps1` 은 **코드(`cmd` · `internal`
 | `actual` | **예상 표(`--from`)와 실제 묶음을 나란히** 놓아 배율(실제÷예상)을 낸다 | 캐시 + `groups.txt` |
 | `mark` | **서브에이전트가 자기 판을 잰다.** `start "<이름>"` · `stop` · `show` · `list`. 시각만 찍고 값은 기록 파일에서 잰다 | 읽기 기록 파일 끝쪽 (start 때 못 묶었으면 stop·show·list 때 파일 전체, 한 번에 512MB 까지) · 쓰기 `marks.txt` (start·stop 줄, stop·show·list 의 `bind` 줄) |
 | `rules` | 분류 규칙 · 크기 배율 · 시드를 보여준다. `--check` 는 문법 검사, `--measure` 는 캐시로 배율·시드를 다시 재서 붙여 넣을 줄만 찍는다 | `rules.txt` (+`--measure` 는 캐시) |
+| `mod` | exe 에 담긴 Claude Code mod(effort-steps)를 `install` · `uninstall` · `status` 한다 (아래 「Claude Code mod」 절) | 쓰기 `~/.claude/skills/effort-steps` · `~/.claude/mod-backups` |
 | `version` · `help` | 판 · 도움말 | — |
 
 `stats` · `estimate` · `show` · `list` · `actual` 은 **절대 쓰기를 안 한다.** 캐시가 없으면 그렇게 말하고 종료 2 다.
@@ -175,6 +176,31 @@ Get-Content 소단계.md | .\bin\effort.exe estimate --from - --human
 ```
 
 인자와 `--from` 을 같이 주면 사용법 오류(종료 1)다.
+
+## Claude Code mod (effort-steps)
+
+Claude Code 안에서 공수 표를 다루는 mod 다. 모델이 `plan` 도구로 소단계를 넣으면 `estimate` 로 예상을 채우고,
+`mark` 기록으로 실제 칸을 채워 `/steps` 패널에 보인다. 완료 보고의 공수 표는 `table` 도구로 뽑는다.
+**plan 없는 메인 세션의 Edit · Write · NotebookEdit · Agent 는 막는다** (서브에이전트 · `claude -p` 는 안 막는다).
+소단계가 전부 끝 · 건너뜀이면 「plan 없음」으로 보고 다시 막는다.
+소스는 `mod/effort-steps/` 이고, 빌드 때 exe 안에 담긴다.
+
+```powershell
+.\bin\effort.exe mod install     # ~/.claude/skills/effort-steps 에 푼다 (있던 것은 mod-backups 로 옮김)
+.\bin\effort.exe mod status      # 설치본과 exe 에 담긴 판을 견준다. 「같음」이 아니면 종료 2
+.\bin\effort.exe mod uninstall   # 설치본을 mod-backups 로 옮긴다 (지우지 않는다)
+```
+
+- 새 세션부터 돈다. **개발 세션(dev-mods 에 effort-steps 가 떠 있음)이 끝난 뒤에** install 한다 — 겹치면 멈춘다.
+- Claude Code 안 명령 : `/steps allow` (다음 사람 말 한 번까지 막기 풀기, 사람이 친 것만) · `/steps status` (mode · plan 있음 · 허용 중).
+- `/config` → effort-steps 의 `mode` : `deny`(기본) · `warn`(경고만) · `off`(강제 끔). `effortPath` 도 여기서 덮어쓴다.
+
+**고칠 때 흐름.**
+① `mod/effort-steps` 를 그 세션의 `~/.claude/dev-mods/<세션id>/effort-steps/` 로 복사해 핫리로드로 고친다
+② `claude plugin validate` · `tsc -p` · `claude plugin test` ③ 저장소 `mod/effort-steps` 로 되돌려 복사한다 (정본은 저장소)
+④ 그 dev-mods 사본을 지운다 ⑤ `.\build.ps1 -Test` ⑥ 개발 세션을 닫은 뒤 `mod install` → `mod status` 로 「같음」 확인.
+
+상세(판정 규칙 · 막는 글 · 종료 코드)는 `Docs/Design/2026-10-14-effort-steps이관·강제·embed설계.md` 를 본다.
 
 ## 종료 코드
 

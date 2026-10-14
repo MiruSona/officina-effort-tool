@@ -1,0 +1,40 @@
+{
+  "name": "effort-steps",
+  "version": "0.2.0",
+  "description": "EffortTool 소단계 진행 표(소단계/예상/실제/상태)를 프롬프트 위 띠와 /steps 패널로 보여 주고, plan 없는 편집·Agent 를 막는다",
+  "author": { "name": "MiruSona" },
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "mode": {
+      "type": "string",
+      "title": "plan 없는 편집·Agent 다루기",
+      "description": "deny = 막는다 · warn = 지나가되 그 턴 첫 번에 경고 한 줄 · off = 안 본다. 모르는 값은 deny. 메인 대화형 세션만 본다",
+      "options": ["deny", "warn", "off"],
+      "default": "deny"
+    },
+    "effortPath": {
+      "type": "string",
+      "title": "effort.exe 경로",
+      "description": "effort mod install 이 기본값을 채운다. 비었거나 그 자리에 파일이 없으면 <작업폴더>/EffortTool/bin · Tools/EffortTool/bin · PATH 차례로 찾는다",
+      "default": ""
+    },
+    "refreshSec": {
+      "type": "number",
+      "title": "열린 mark 다시 재는 주기(초)",
+      "description": "열린 mark 가 있을 때만 effort mark show 를 부른다. 10 미만은 10",
+      "default": 30
+    },
+    "redRatio": {
+      "type": "number",
+      "title": "빨강 문턱(실제/예상 배)",
+      "description": "실제가 예상의 이 배를 넘으면 빨강으로 칠한다",
+      "default": 1.5
+    },
+    "autoPane": {
+      "type": "boolean",
+      "title": "계획을 넣으면 패널 자동으로 열기",
+      "description": "끄면 /steps 로만 연다",
+      "default": false
+    }
+  }
+}

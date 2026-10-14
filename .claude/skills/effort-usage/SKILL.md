@@ -62,7 +62,10 @@ description: Use when estimating effort before starting work, filling the 실제
 
 ## effort-steps mod 와 같이 쓸 때
 
-- 시작에 `plan` 도구로 소단계를 넣는다. 예상은 `estimate` 가 채운다.
+- **새 판을 시작하면 먼저 `plan` 도구로 소단계를 넣는다.** 예상은 `estimate` 가 채운다.
+  plan 이 없으면 메인 세션의 Edit · Write · NotebookEdit · Agent 가 막힌다 (서브에이전트 · `claude -p` 는 안 막힌다).
+- 소단계가 전부 끝 · 건너뜀이 되면 다시 막힌다 — 다음 일을 하려면 plan 을 다시 넣는다.
+- 사람이 다음 말 한 번만 풀려면 `/steps allow`, 상태는 `/steps status`. 설치·`mode` 는 EffortTool `README.md` 의 「Claude Code mod」 절.
 - 서브에이전트 mark 이름은 **`<번호>-<이름>`** 으로 plan 의 번호와 맞춘다 (예 `2-타일그림`). 그래야 `/steps` 패널의 실제 칸이 자동으로 찬다.
 - 메인 세션이 직접 친 mark 는 start 때 `묶기없음` 이 뜨지만 stop·show 때 다시 묶인다. 메인과 서브가 같은 소단계를 재면 **서브에이전트 mark 를 정본으로** 쓴다.
 - 완료 보고의 공수 표는 `table` 도구 결과를 붙인다.

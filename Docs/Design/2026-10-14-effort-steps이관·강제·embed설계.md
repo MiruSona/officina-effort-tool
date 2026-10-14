@@ -252,3 +252,23 @@ plan 도구가 지연 도구(deferred)로 뜨는 것을 이 세션에서 봤다.
 3. **`/steps mode warn` 처럼 세션만 바꾸는 명령도 둘까?** delegate-check 에는 있다. 이 설계는 `/config` 만 둔다.
 4. 엔진이 `~/.claude/skills` 아래 플러그인에도 **userConfig default 를 options 에 채우는지**는 시험 키트 문서(「defaults filled in」)로만 봤다. 소단계 8 에서 `/steps status` 에 잡힌 exe 경로로 확인한다. 안 채우면 설치본 옆 파일을 `$.fs` 로 읽는 길로 바꾼다.
 5. `/clear` 뒤 `$.state` 가 비는지 — 판정은 세션 id 로 하므로 결과는 같지만, 소단계 7 에서 실물로 본다.
+
+## 구현 뒤 바뀐 것 (10-14 밤 4)
+
+구현 판(소단계 1~12)이 끝난 뒤 적는다. **위 본문은 설계 당시 그대로 둔다.** 실제와 다른 곳은 여기서 본다.
+
+| # | 본문 | 실제 | 까닭 |
+| --- | --- | --- | --- |
+| 1 | 소단계가 모두 「끝」이면 plan 없음 (메인 결정) | 「끝」 **또는 「건너뜀」** 이면 plan 없음. 건너뜀도 끝으로 친다 | 메인 결정 (구현 판) |
+| 2 | `/steps allow` 는 다음 사람 말 전까지 · `{at:number}` | **다음 사람 말(슬래시 아닌) 한 번을 살아남는다** · `{at, used}`. 첫 사람 말에 `used`, 둘째 말에 지움 | 옛 꼴은 「막힘 → allow → 계속 → 또 막힘」이라 쓸모없었다 (리뷰 발견) |
+| 3 | 훅이 터지면 fail-open | 판정만 try/catch 로 감싸고 `next(e)` 는 밖에서 한 번. `.catch(next(e))` 꼴은 뗐다 | 정리 성격. 엔진 `.catch` 의 next 는 replay-safe 라 옛 꼴도 두 번 돌진 않았을 것 |
+| 4 | types 는 엔진이 까는 것 | `types/mcp-self.d.ts` 를 새로 둔다. 이 mod 자기 도구 셋을 느슨한 입력으로 선언 | 엔진 mcp 타입에 자기 도구가 빠져 tsc 가 약 60건 났다. 이제 0건. 엔진이 나중에 자기 도구도 적으면 TS2717 중복 선언이 날 수 있다 |
+| 5 | (본문에 없음) | `internal/paths/jail.go` 에 `resolveExisting` · `noReparseBelow` 추가, 정션 시험 2개 | Go 1.23+ `EvalSymlinks` 가 Windows 정션을 안 풀어 감옥이 뚫렸다 (리뷰 발견). 이제 뿌리 아래 정션이 낀 경로는 거절한다 |
+| 6 | exe 에 plugin.json · hooks · types | 담긴 파일 **12개** (`effort mod status` 「같음 (파일 12개)」) | — |
+
+- 리뷰가 「서브 plan 거절」 · 「전부 끝 = plan 없음」을 설계와 다르다고 짚었다. 둘 다 위 「물을 것」 메인 결정(mem `20261014-5a47cfb7`)대로라 그대로 둔다.
+
+### 물을 것 4 · 5 답
+
+- **4** : 설치본 plugin.json 의 userConfig default 가 채워진 것은 확인했다. 엔진이 그 값을 options 에 채우는지는 손 시험 ⑤에서 `/steps status` 로 본다.
+- **5** : 손 시험이 남았다 (새 세션에서 `/clear` 뒤 막힘 + `$.state` 비는지).
